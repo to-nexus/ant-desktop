@@ -33,11 +33,20 @@ fn set_connection_status<R: Runtime>(
     state: &SharedAppState,
     status: ConnectionStatus,
 ) {
-    if let Ok(mut s) = state.lock() {
-        if s.connection_status != status {
-            s.connection_status = status.clone();
-            let _ = app.emit("connection-status-changed", status);
+    let changed = {
+        if let Ok(mut s) = state.lock() {
+            if s.connection_status != status {
+                s.connection_status = status.clone();
+                true
+            } else {
+                false
+            }
+        } else {
+            false
         }
+    };
+    if changed {
+        let _ = app.emit("connection-status-changed", status);
     }
 }
 
@@ -55,13 +64,18 @@ pub async fn run_loop<R: Runtime>(
         }
 
         let (server_url, jwt, user_id, machine_id) = {
-            let s = state.lock().unwrap();
-            (
-                s.server_url.clone(),
-                s.jwt.clone(),
-                s.user_id.clone(),
-                s.machine_id.clone(),
-            )
+            match state.lock() {
+                Ok(s) => (
+                    s.server_url.clone(),
+                    s.jwt.clone(),
+                    s.user_id.clone(),
+                    s.machine_id.clone(),
+                ),
+                Err(_) => {
+                    error!("state lock poisoned, stopping bridge loop");
+                    return;
+                }
+            }
         };
 
         let (Some(server_url), Some(jwt)) = (server_url, jwt) else {
@@ -148,9 +162,10 @@ pub async fn run_loop<R: Runtime>(
         set_connection_status(&app, &state, ConnectionStatus::Connected);
         retry_delay = Duration::from_millis(RECONNECT_BASE_DELAY_MS);
 
-        let _figma_reachable = {
-            state.lock().unwrap().figma_status == FigmaStatus::Available
-        };
+        let _figma_reachable = state
+            .lock()
+            .map(|s| s.figma_status == FigmaStatus::Available)
+            .unwrap_or(false);
 
         if let Err(e) = handle_session(
             ws_stream,
@@ -214,7 +229,9 @@ async fn handle_session<R: Runtime>(
             }
 
             _ = heartbeat_interval.tick() => {
-                let figma = state.lock().unwrap().figma_status == FigmaStatus::Available;
+                let figma = state.lock()
+                    .map(|s| s.figma_status == FigmaStatus::Available)
+                    .unwrap_or(false);
                 let heartbeat = BridgeMessage::Heartbeat(HeartbeatMessage {
                     timestamp: now_ms(),
                     figma_desktop_reachable: Some(figma),

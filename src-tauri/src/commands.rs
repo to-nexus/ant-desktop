@@ -6,7 +6,7 @@ use crate::state::{AppStateSnapshot, ConnectionStatus, SharedAppState};
 use crate::{auth, replace_token, save_server_url, spawn_connection_tasks, SharedCancellationToken};
 
 #[tauri::command]
-pub fn get_app_state(state: tauri::State<SharedAppState>) -> Result<AppStateSnapshot, AppError> {
+pub async fn get_app_state(state: tauri::State<'_, SharedAppState>) -> Result<AppStateSnapshot, AppError> {
     let guard = state
         .lock()
         .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
@@ -22,8 +22,8 @@ pub struct ConnectionInfo {
 }
 
 #[tauri::command]
-pub fn get_connection_info(
-    state: tauri::State<SharedAppState>,
+pub async fn get_connection_info(
+    state: tauri::State<'_, SharedAppState>,
 ) -> Result<ConnectionInfo, AppError> {
     let guard = state
         .lock()
@@ -41,8 +41,7 @@ pub async fn disconnect<R: Runtime>(
     state: tauri::State<'_, SharedAppState>,
     shared_token: tauri::State<'_, SharedCancellationToken>,
 ) -> Result<(), AppError> {
-    {
-        let guard = shared_token.lock().unwrap();
+    if let Ok(guard) = shared_token.lock() {
         guard.cancel();
     }
 

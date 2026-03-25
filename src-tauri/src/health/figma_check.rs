@@ -23,14 +23,16 @@ pub async fn check_loop<R: Runtime>(
             }
             _ = interval.tick() => {
                 let new_status = check_figma_once().await;
-                let changed = {
-                    let mut s = state.lock().unwrap();
-                    if s.figma_status != new_status {
-                        s.figma_status = new_status.clone();
-                        true
-                    } else {
-                        false
+                let changed = match state.lock() {
+                    Ok(mut s) => {
+                        if s.figma_status != new_status {
+                            s.figma_status = new_status.clone();
+                            true
+                        } else {
+                            false
+                        }
                     }
+                    Err(_) => false,
                 };
                 if changed {
                     let available = matches!(new_status, FigmaStatus::Available);

@@ -25,6 +25,9 @@ function LogsPage() {
   }, []);
 
   useEffect(() => {
+    const isTauri = !!(window as any).__TAURI_INTERNALS__;
+    if (!isTauri) return;
+
     const unlisteners = [
       listen("connection-status-changed", (event) => {
         addLog("connection", `Status: ${JSON.stringify(event.payload)}`);
@@ -49,7 +52,7 @@ function LogsPage() {
     ];
 
     return () => {
-      unlisteners.forEach((p) => p.then((fn) => fn()));
+      unlisteners.forEach((p) => p.then((fn) => fn()).catch(() => {}));
     };
   }, [addLog]);
 

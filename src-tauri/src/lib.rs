@@ -18,13 +18,20 @@ use tracing::info;
 pub type SharedCancellationToken = Arc<Mutex<CancellationToken>>;
 
 /// Cancel the current token and replace it with a fresh one.
-/// Returns the new token for spawning tasks.
+/// Returns the new token for spawning tasks, or a fresh unmanaged token on lock failure.
 pub fn replace_token(shared: &SharedCancellationToken) -> CancellationToken {
-    let mut guard = shared.lock().unwrap();
-    guard.cancel();
-    let new_token = CancellationToken::new();
-    *guard = new_token.clone();
-    new_token
+    match shared.lock() {
+        Ok(mut guard) => {
+            guard.cancel();
+            let new_token = CancellationToken::new();
+            *guard = new_token.clone();
+            new_token
+        }
+        Err(e) => {
+            tracing::error!("cancel token lock poisoned: {e}");
+            CancellationToken::new()
+        }
+    }
 }
 
 /// Spawn bridge + health background tasks with the given token.
@@ -33,12 +40,12 @@ pub fn spawn_connection_tasks<R: Runtime>(
     state: SharedAppState,
     app: tauri::AppHandle<R>,
 ) {
-    tokio::spawn(bridge::client::run_loop(
+    tauri::async_runtime::spawn(bridge::client::run_loop(
         token.clone(),
         state.clone(),
         app.clone(),
     ));
-    tokio::spawn(health::figma_check::check_loop(token, state, app));
+    tauri::async_runtime::spawn(health::figma_check::check_loop(token, state, app));
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -73,24 +80,26 @@ pub fn run() {
                 let handle = tray_handle.clone();
                 let state = app.state::<SharedAppState>().inner().clone();
                 app.listen("connection-status-changed", move |_event| {
-                    let s = state.lock().unwrap();
-                    tray::update_tray(&handle, &s.connection_status, &s.figma_status);
+                    if let Ok(s) = state.try_lock() {
+                        tray::update_tray(&handle, &s.connection_status, &s.figma_status);
+                    }
                 });
             }
             {
                 let handle = tray_handle;
                 let state = app.state::<SharedAppState>().inner().clone();
                 app.listen("figma-status-changed", move |_event| {
-                    let s = state.lock().unwrap();
-                    tray::update_tray(&handle, &s.connection_status, &s.figma_status);
+                    if let Ok(s) = state.try_lock() {
+                        tray::update_tray(&handle, &s.connection_status, &s.figma_status);
+                    }
                 });
             }
 
             {
-                let token = app.state::<SharedCancellationToken>().inner().lock().unwrap().clone();
+                let token = app.state::<SharedCancellationToken>().inner().lock().expect("initial token lock").clone();
                 let health_state = app.state::<SharedAppState>().inner().clone();
                 let health_app = app.handle().clone();
-                tokio::spawn(health::figma_check::check_loop(
+                tauri::async_runtime::spawn(health::figma_check::check_loop(
                     token,
                     health_state,
                     health_app,
@@ -137,8 +146,7 @@ fn setup_deep_link(app: &tauri::App) {
 
                 let new_token = replace_token(shared_token.inner());
 
-                {
-                    let mut s = state.lock().unwrap();
+                if let Ok(mut s) = state.lock() {
                     s.server_url = Some(params.server.clone());
                     s.jwt = Some(params.token);
                     s.user_id = user_id;
@@ -183,18 +191,20 @@ fn try_restore_session(app: &tauri::App) {
     info!(server = %server_url, "restoring session from keychain/store");
 
     let state = app.state::<SharedAppState>();
-    {
-        let mut s = state.lock().unwrap();
+    if let Ok(mut s) = state.lock() {
         s.server_url = Some(server_url);
         s.jwt = Some(jwt);
         s.user_id = Some(user_id);
     }
 
-    let token = app.state::<SharedCancellationToken>().inner().lock().unwrap().clone();
+    let token = match app.state::<SharedCancellationToken>().inner().lock() {
+        Ok(t) => t.clone(),
+        Err(_) => return,
+    };
     let shared_state = state.inner().clone();
     let app_handle = app.handle().clone();
 
-    tokio::spawn(bridge::client::run_loop(token, shared_state, app_handle));
+    tauri::async_runtime::spawn(bridge::client::run_loop(token, shared_state, app_handle));
 }
 
 pub fn save_server_url<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &str) {
