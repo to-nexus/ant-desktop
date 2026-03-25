@@ -1,0 +1,50 @@
+{
+  "register": {
+    "type": "bridge.register",
+    "userId": "user-123",
+    "machineId": "machine-abc-def",
+    "capabilities": ["figma-mcp"]
+  },
+  "heartbeat": {
+    "type": "bridge.heartbeat",
+    "timestamp": 1711382400000,
+    "figmaDesktopReachable": true
+  },
+  "heartbeat_minimal": {
+    "type": "bridge.heartbeat",
+    "timestamp": 1711382400000
+  },
+  "disconnect": {
+    "type": "bridge.disconnect",
+    "reason": "user requested"
+  },
+  "disconnect_no_reason": {
+    "type": "bridge.disconnect"
+  },
+  "mcp_request": {
+    "type": "mcp.request",
+    "requestId": "req-uuid-001",
+    "tool": "get_design_context",
+    "args": {
+      "fileKey": "abc123",
+      "nodeId": "1:2"
+    }
+  },
+  "mcp_response_success": {
+    "type": "mcp.response",
+    "requestId": "req-uuid-001",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "design context data"
+        }
+      ]
+    }
+  },
+  "mcp_response_error": {
+    "type": "mcp.response",
+    "requestId": "req-uuid-002",
+    "error": "Figma Desktop is not running"
+  }
+}
