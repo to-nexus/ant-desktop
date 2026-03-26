@@ -1,5 +1,7 @@
+use std::sync::LazyLock;
 use std::time::Duration;
 
+use reqwest::Client;
 use tauri::{AppHandle, Emitter, Runtime};
 use tokio::time::{interval_at, Instant};
 use tokio_util::sync::CancellationToken;
@@ -8,6 +10,13 @@ use tracing::debug;
 use crate::constants::*;
 use crate::state::{FigmaStatus, SharedAppState};
 
+static HEALTH_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .timeout(Duration::from_millis(FIGMA_HEALTH_CHECK_TIMEOUT_MS))
+        .build()
+        .expect("failed to build health check client")
+});
+
 pub async fn check_loop<R: Runtime>(
     token: CancellationToken,
     state: SharedAppState,
@@ -15,6 +24,8 @@ pub async fn check_loop<R: Runtime>(
 ) {
     let start = Instant::now() + Duration::from_secs(3);
     let mut interval = interval_at(start, Duration::from_millis(FIGMA_HEALTH_CHECK_INTERVAL_MS));
+
+    let mut prev_status = FigmaStatus::Unknown;
 
     loop {
         tokio::select! {
@@ -38,22 +49,26 @@ pub async fn check_loop<R: Runtime>(
                 if changed {
                     let available = matches!(new_status, FigmaStatus::Available);
                     debug!(available, "figma status changed");
+
+                    // Figma came back (restart or first discovery) — reset MCP session
+                    // so the next tool call re-initializes the handshake.
+                    let was_unavailable = !matches!(prev_status, FigmaStatus::Available);
+                    if available && was_unavailable {
+                        crate::mcp::proxy::reset_session().await;
+                    }
+
                     let _ = app.emit(
                         "figma-status-changed",
                         serde_json::json!({ "available": available }),
                     );
                 }
+                prev_status = new_status;
             }
         }
     }
 }
 
 async fn check_figma_once() -> FigmaStatus {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(3))
-        .build()
-        .unwrap();
-
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": "health-check",
@@ -65,7 +80,9 @@ async fn check_figma_once() -> FigmaStatus {
         }
     });
 
-    match client.post(FIGMA_MCP_ENDPOINT).json(&request).send().await {
+    match HEALTH_CLIENT.post(FIGMA_MCP_ENDPOINT)
+        .header("Accept", "application/json, text/event-stream")
+        .json(&request).send().await {
         Ok(_) => FigmaStatus::Available,
         Err(_) => FigmaStatus::Unavailable,
     }

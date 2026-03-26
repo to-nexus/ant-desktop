@@ -1,17 +1,166 @@
+use std::sync::LazyLock;
 use std::time::Duration;
 
+use reqwest::Client;
 use serde_json::json;
 use tokio::sync::Mutex as TokioMutex;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::bridge::protocol::{McpRequestMessage, McpResponseMessage};
 use crate::constants::*;
 use crate::mcp::McpError;
 
-static MCP_MUTEX: TokioMutex<()> = TokioMutex::const_new(());
+const MCP_ACCEPT: &str = "application/json, text/event-stream";
+
+struct McpSession {
+    initialized: bool,
+    session_id: Option<String>,
+}
+
+static MCP_SESSION: LazyLock<TokioMutex<McpSession>> = LazyLock::new(|| {
+    TokioMutex::new(McpSession {
+        initialized: false,
+        session_id: None,
+    })
+});
+
+static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .timeout(Duration::from_millis(BRIDGE_MCP_REQUEST_TIMEOUT_MS))
+        .build()
+        .expect("failed to build reqwest client")
+});
+
+/// Extract JSON from an SSE response body (`event: message\ndata: {...}\n`).
+/// Falls back to direct JSON parse when the body is plain JSON.
+fn parse_response_body(body: &[u8], is_sse: bool) -> Result<serde_json::Value, McpError> {
+    if is_sse {
+        let text = std::str::from_utf8(body)
+            .map_err(|e| McpError::RequestFailed(format!("invalid UTF-8: {e}")))?;
+        for line in text.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                return serde_json::from_str(data)
+                    .map_err(|e| McpError::RequestFailed(format!("invalid JSON in SSE data: {e}")));
+            }
+        }
+        Err(McpError::RequestFailed("no data line in SSE response".into()))
+    } else {
+        serde_json::from_slice(body)
+            .map_err(|e| McpError::RequestFailed(format!("invalid JSON response: {e}")))
+    }
+}
+
+fn content_type_is_sse(response: &reqwest::Response) -> bool {
+    response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.contains("text/event-stream"))
+        .unwrap_or(false)
+}
+
+/// Reset MCP session state so the next tool call re-initializes.
+/// Called when Figma Desktop restarts (detected by health check).
+pub async fn reset_session() {
+    let mut session = MCP_SESSION.lock().await;
+    if session.initialized {
+        info!("resetting MCP session (Figma restarted)");
+        session.initialized = false;
+        session.session_id = None;
+    }
+}
+
+async fn ensure_initialized(session: &mut McpSession) -> Result<(), McpError> {
+    if session.initialized {
+        return Ok(());
+    }
+
+    info!("initializing MCP session with Figma Desktop");
+
+    let init_body = json!({
+        "jsonrpc": "2.0",
+        "id": "ant-desktop-init",
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": { "name": "ant-desktop", "version": "0.1.0" }
+        }
+    });
+
+    let response = HTTP_CLIENT
+        .post(FIGMA_MCP_ENDPOINT)
+        .header("Accept", MCP_ACCEPT)
+        .json(&init_body)
+        .send()
+        .await
+        .map_err(|e| {
+            if e.is_connect() {
+                McpError::FigmaNotRunning
+            } else {
+                McpError::RequestFailed(format!("initialize failed: {e}"))
+            }
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let _ = response.bytes().await;
+        return Err(McpError::RequestFailed(format!(
+            "initialize returned HTTP {status}"
+        )));
+    }
+
+    let sid = response
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let is_sse = content_type_is_sse(&response);
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| McpError::RequestFailed(format!("failed to read init response: {e}")))?;
+
+    let json_rpc = parse_response_body(&body, is_sse)?;
+    if let Some(err) = json_rpc.get("error") {
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown initialize error");
+        return Err(McpError::RequestFailed(format!("initialize rejected: {msg}")));
+    }
+
+    if let Some(ref id) = sid {
+        info!(session_id = %id, "captured MCP session ID");
+    }
+
+    // Send notifications/initialized
+    let mut notif_req = HTTP_CLIENT
+        .post(FIGMA_MCP_ENDPOINT)
+        .header("Accept", MCP_ACCEPT)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }));
+
+    if let Some(ref id) = sid {
+        notif_req = notif_req.header("Mcp-Session-Id", id.as_str());
+    }
+
+    match notif_req.send().await {
+        Ok(resp) => { let _ = resp.bytes().await; }
+        Err(e) => warn!("notifications/initialized failed (non-fatal): {e}"),
+    }
+
+    session.session_id = sid;
+    session.initialized = true;
+    info!("MCP session initialized");
+    Ok(())
+}
 
 pub async fn handle_request(req: &McpRequestMessage) -> McpResponseMessage {
-    let _guard = MCP_MUTEX.lock().await;
+    let mut session = MCP_SESSION.lock().await;
 
     info!(
         request_id = %req.request_id,
@@ -19,7 +168,7 @@ pub async fn handle_request(req: &McpRequestMessage) -> McpResponseMessage {
         "proxying MCP request to Figma Desktop"
     );
 
-    match proxy_to_figma(req).await {
+    match proxy_to_figma(&mut session, req).await {
         Ok(result) => McpResponseMessage {
             request_id: req.request_id.clone(),
             result: Some(result),
@@ -40,7 +189,12 @@ pub async fn handle_request(req: &McpRequestMessage) -> McpResponseMessage {
     }
 }
 
-async fn proxy_to_figma(req: &McpRequestMessage) -> Result<serde_json::Value, McpError> {
+async fn proxy_to_figma(
+    session: &mut McpSession,
+    req: &McpRequestMessage,
+) -> Result<serde_json::Value, McpError> {
+    ensure_initialized(session).await?;
+
     let json_rpc_request = json!({
         "jsonrpc": "2.0",
         "id": req.request_id,
@@ -51,24 +205,32 @@ async fn proxy_to_figma(req: &McpRequestMessage) -> Result<serde_json::Value, Mc
         }
     });
 
-    let client = reqwest::Client::new();
+    let mut request_builder = HTTP_CLIENT
+        .post(FIGMA_MCP_ENDPOINT)
+        .header("Accept", MCP_ACCEPT)
+        .json(&json_rpc_request);
 
-    let response = tokio::time::timeout(
-        Duration::from_millis(BRIDGE_MCP_REQUEST_TIMEOUT_MS),
-        client
-            .post(FIGMA_MCP_ENDPOINT)
-            .json(&json_rpc_request)
-            .send(),
-    )
-    .await
-    .map_err(|_| McpError::Timeout)?
-    .map_err(|e| {
+    if let Some(ref sid) = session.session_id {
+        request_builder = request_builder.header("Mcp-Session-Id", sid.as_str());
+    }
+
+    let response = request_builder.send().await.map_err(|e| {
         if e.is_connect() {
             McpError::FigmaNotRunning
         } else {
             McpError::RequestFailed(e.to_string())
         }
     })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let _ = response.bytes().await;
+        return Err(McpError::RequestFailed(format!(
+            "tools/call returned HTTP {status}"
+        )));
+    }
+
+    let is_sse = content_type_is_sse(&response);
 
     let body_bytes = response
         .bytes()
@@ -82,9 +244,7 @@ async fn proxy_to_figma(req: &McpRequestMessage) -> Result<serde_json::Value, Mc
         });
     }
 
-    let json_rpc_response: serde_json::Value =
-        serde_json::from_slice(&body_bytes)
-            .map_err(|e| McpError::RequestFailed(format!("invalid JSON response: {e}")))?;
+    let json_rpc_response = parse_response_body(&body_bytes, is_sse)?;
 
     if let Some(error) = json_rpc_response.get("error") {
         let msg = error
