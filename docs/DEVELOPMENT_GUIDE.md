@@ -1,4 +1,4 @@
-# ant-companion Development Guide
+# ant-desktop Development Guide
 
 ## 문서 역할 (빠른 참고)
 
@@ -12,9 +12,9 @@
 
 ### 문서 소유권 원칙
 
-이 `docs/` 디렉터리(**PRD.md**, **SYSTEM_DESIGN.md**, 본 파일)가 **ant-companion 제품·아키텍처·개발 규칙의 정본(SSOT)** 이다.
+이 `docs/` 디렉터리(**PRD.md**, **SYSTEM_DESIGN.md**, 본 파일)가 **ant-desktop 제품·아키텍처·개발 규칙의 정본(SSOT)** 이다.
 
-- Ant 메인 레포의 구현 계획서(`.cursor/plans/...`)는 **Bridge 서버 측 구현 + Figma 파이프라인** 작업 순서 문서이며, companion 제품 스펙을 바꾸려면 **여기 `docs/`를 먼저 수정**한 뒤 계획서 요약을 맞춘다.
+- Ant 메인 레포의 구현 계획서(`.cursor/plans/...`)는 **Bridge 서버 측 구현 + Figma 파이프라인** 작업 순서 문서이며, Ant Desktop 제품 스펙을 바꾸려면 **여기 `docs/`를 먼저 수정**한 뒤 계획서 요약을 맞춘다.
 - `@ant/shared/src/figma.ts`의 타입·상수가 **크로스 레포 프로토콜 계약**의 단일 소스이다. 필드 추가·변경 시 이 문서의 §6(PRD)·§8(SYSTEM_DESIGN)을 같이 갱신한다.
 
 ### 저장소 경계
@@ -22,9 +22,9 @@
 | 저장소 | 성격 | 언어 | 빌드 |
 |--------|------|------|------|
 | **`ant`** (메인) | pnpm workspace 기반 **TypeScript 모노레포** — `ant-cli`, `ant-ui`, `ant-shared` 등 | TypeScript | pnpm + Vite + tsc |
-| **`ant-companion`** (여기) | **별도 Git 저장소** — Tauri 데스크톱 앱 | Rust + TypeScript(React) | Cargo + pnpm + Tauri Bundler |
+| **`ant-desktop`** (여기) | **별도 Git 저장소** — Tauri 데스크톱 앱 | Rust + TypeScript(React) | Cargo + pnpm + Tauri Bundler |
 
-Companion을 Ant 모노레포에 편입하지 않는 이유: 배포 채널(GitHub Releases 인스톨러 vs Docker/K8s), 코드 서명, Tauri 빌드 체인이 근본적으로 다르다.
+Ant Desktop을 Ant 모노레포에 편입하지 않는 이유: 배포 채널(GitHub Releases 인스톨러 vs Docker/K8s), 코드 서명, Tauri 빌드 체인이 근본적으로 다르다.
 
 ### 이 레포는 모노레포인가?
 
@@ -33,7 +33,7 @@ Companion을 Ant 모노레포에 편입하지 않는 이유: 배포 채널(GitHu
 **한 저장소 안에 React(TypeScript)와 Rust가 함께** 들어가는 **Tauri 표준 단일 제품 레포**이다:
 
 ```
-ant-companion/
+ant-desktop/
 ├── src/              # React 프론트엔드 (TS)
 ├── src-tauri/        # Rust 백엔드 (Tauri Core)
 ├── docs/             # 제품·설계·개발 문서 (정본)
@@ -82,7 +82,7 @@ ant-companion/
 
 ### Ant와의 계약
 
-- JSON 메시지 스키마·상수 등 **크로스 레포 타입**은 Ant의 `packages/ant-shared`에서 정의된다. Companion은 **동일 계약을 Rust struct로 재구현**하고, JSON fixture round-trip 테스트로 호환성을 검증한다 (§7.3 참조).
+- JSON 메시지 스키마·상수 등 **크로스 레포 타입**은 Ant의 `packages/ant-shared`에서 정의된다. Ant Desktop은 **동일 계약을 Rust struct로 재구현**하고, JSON fixture round-trip 테스트로 호환성을 검증한다 (§7.3 참조).
 - `@ant/shared`가 변경되면 이 레포의 `src-tauri/src/bridge/protocol.rs` + `tests/fixtures/` + 이 문서들을 같은 타이밍에 갱신한다.
 
 ---
@@ -217,7 +217,7 @@ pnpm --version       # 9.X.X
 Tauri v2 + React + TypeScript 프로젝트를 생성한다:
 
 ```bash
-cd /path/to/ant-companion
+cd /path/to/ant-desktop
 pnpm create tauri-app@latest . -- --template react-ts
 ```
 
@@ -246,7 +246,7 @@ pnpm add @tauri-apps/plugin-autostart \
 ### 2.2 Directory Structure
 
 ```
-ant-companion/
+ant-desktop/
 ├── docs/                          # 문서 (PRD, System Design, 이 파일)
 ├── src/                           # React 프론트엔드
 │   ├── App.tsx
@@ -343,12 +343,12 @@ tracing-subscriber = "0.3"
 
 ```json
 {
-  "productName": "ant-companion",
-  "identifier": "com.ant.companion",
+  "productName": "ant-desktop",
+  "identifier": "com.ant.desktop",
   "app": {
     "windows": [
       {
-        "title": "ant-companion",
+        "title": "ant-desktop",
         "width": 480,
         "height": 600,
         "resizable": false,
@@ -364,7 +364,7 @@ tracing-subscriber = "0.3"
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["ant-companion"]
+        "schemes": ["ant-desktop"]
       }
     }
   }
@@ -407,10 +407,10 @@ cd src-tauri && cargo clippy
 **딥링크 테스트:**
 ```bash
 # macOS — 클라우드 프리셋과 동일한 베이스
-open "ant-companion://connect?token=test-jwt&server=https://ant.crosstoken.io"
+open "ant-desktop://connect?token=test-jwt&server=https://ant.crosstoken.io"
 
 # 로컬 realtime (ant-cli 기본 realtime 포트 4101)
-open "ant-companion://connect?token=test-jwt&server=http://127.0.0.1:4101"
+open "ant-desktop://connect?token=test-jwt&server=http://127.0.0.1:4101"
 ```
 
 `server`는 `SYSTEM_DESIGN.md` **§2.5 서버 베이스 URL**의 **`realtime_base_url`** 과 동일 형식(HTTP(S) 오리진, Bridge는 `/bridge/ws`)이어야 한다. API 포트(4100)가 아니라 **realtime 포트(기본 4101)** 를 쓴다. 앱 설정 화면에서도 같은 값을 수동·프리셋으로 바꿀 수 있다.
@@ -511,7 +511,7 @@ curl -X POST http://127.0.0.1:3845/mcp \
 8. (주의) 프리셋 라벨은 **UI 표시용**이며 `ANT_SERVER_MODE` 등을 탐지하지 않음
 
 **테스트 방법:**
-- `open "ant-companion://connect?token=test&server=http://127.0.0.1:4101"` (macOS)
+- `open "ant-desktop://connect?token=test&server=http://127.0.0.1:4101"` (macOS)
 - 설정만으로 URL 변경 후 재연결
 - Keychain에 JWT 저장 확인
 - 앱 재시작 후 store+Keychain에서 복원하여 자동 연결
@@ -648,11 +648,11 @@ Tauri의 `tauri-plugin-updater`가 플랫폼별 업데이트 메커니즘을 자
 
 ### 7.1 ant-cli 의존성
 
-ant-companion이 작동하려면 ant-cli 측에 다음이 구현되어 있어야 한다:
+ant-desktop이 작동하려면 ant-cli 측에 다음이 구현되어 있어야 한다:
 
 | ant-cli 구현 | 용도 | Phase 연관 |
 |-------------|------|-----------|
-| `POST /api/auth/companion-token` | 장기 JWT 발급 엔드포인트 | Phase 4 |
+| `POST /api/auth/desktop-token` | 장기 JWT 발급 엔드포인트 | Phase 4 |
 | JWT 미들웨어: Authorization 헤더 지원 | WebSocket 인증 | Phase 2 |
 | `/bridge/ws` WebSocket 엔드포인트 | Bridge 연결 수신 | Phase 2 |
 | Bridge Session Manager (Redis) | 세션 등록/관리 | Phase 2 |
@@ -668,16 +668,16 @@ ant-companion이 작동하려면 ant-cli 측에 다음이 구현되어 있어야
 
 ### 7.3 @ant/shared 계약
 
-`packages/ant-shared/src/figma.ts`가 유일한 프로토콜 계약 소스이다. ant-companion의 Rust 코드는 이 파일의 TypeScript 타입과 JSON 직렬화가 완벽히 호환되어야 한다.
+`packages/ant-shared/src/figma.ts`가 유일한 프로토콜 계약 소스이다. ant-desktop의 Rust 코드는 이 파일의 TypeScript 타입과 JSON 직렬화가 완벽히 호환되어야 한다.
 
 **동기화 절차 (권장):**
 
-1. **공유 JSON fixture:** `ant-companion/src-tauri/tests/fixtures/bridge_messages.json` (또는 동등 경로)에 각 메시지 타입별 **골든 샘플** JSON을 둔다. 소스는 TypeScript에서 `JSON.stringify`로 생성하거나 수동으로 `figma.ts` 주석과 맞춘다.
+1. **공유 JSON fixture:** `ant-desktop/src-tauri/tests/fixtures/bridge_messages.json` (또는 동등 경로)에 각 메시지 타입별 **골든 샘플** JSON을 둔다. 소스는 TypeScript에서 `JSON.stringify`로 생성하거나 수동으로 `figma.ts` 주석과 맞춘다.
 2. **Rust round-trip 테스트:** `serde_json::from_str::<BridgeMessage>(fixture)` → 다시 `to_string` → 파싱이 깨지지 않는지, 키 이름이 camelCase인지 검증한다.
 3. **선택:** 소규모 Node 스크립트로 `figma.ts`에서 샘플 객체를 export해 JSON 파일을 덤프하고, CI에서 Rust 테스트가 그 파일을 읽게 하면 TS↔Rust 드리프트를 한 번에 잡을 수 있다.
 4. `@ant/shared/src/figma.ts` 수정 시 반드시 fixture와 Rust struct를 같은 PR에서 갱신한다.
 
 프로토콜 변경 시 체크리스트:
 1. `@ant/shared/src/figma.ts` 수정 (TypeScript)
-2. `ant-companion/src-tauri/src/bridge/protocol.rs` 동기화 (Rust)
+2. `ant-desktop/src-tauri/src/bridge/protocol.rs` 동기화 (Rust)
 3. fixture + `cargo test`로 호환성 검증

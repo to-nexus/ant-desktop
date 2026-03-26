@@ -1,4 +1,4 @@
-use ant_companion_lib::bridge::protocol::*;
+use ant_desktop_lib::bridge::protocol::*;
 
 const FIXTURES: &str = include_str!("fixtures/bridge_messages.json");
 

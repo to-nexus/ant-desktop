@@ -3,7 +3,8 @@
     "type": "bridge.register",
     "userId": "user-123",
     "machineId": "machine-abc-def",
-    "capabilities": ["figma-mcp"]
+    "capabilities": ["figma-mcp"],
+    "figmaDesktopReachable": false
   },
   "heartbeat": {
     "type": "bridge.heartbeat",

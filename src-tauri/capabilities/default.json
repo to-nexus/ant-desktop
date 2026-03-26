@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default permissions for ant-companion",
+  "description": "Default permissions for ant-desktop",
   "windows": ["main"],
   "permissions": [
     "core:default",

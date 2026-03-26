@@ -1,6 +1,6 @@
 # Deployment Guide
 
-How to build, sign, and distribute ant-companion as a desktop application. Written for developers with no prior experience shipping Tauri / desktop apps.
+How to build, sign, and distribute ant-desktop as a desktop application. Written for developers with no prior experience shipping Tauri / desktop apps.
 
 ---
 
@@ -54,9 +54,9 @@ src-tauri/target/release/bundle/
 ```
 src-tauri/target/release/bundle/
 ├── macos/
-│   └── ant-companion.app          # Application bundle
+│   └── ant-desktop.app          # Application bundle
 └── dmg/
-    └── ant-companion_0.1.0_aarch64.dmg   # Disk image installer
+    └── ant-desktop_0.1.0_aarch64.dmg   # Disk image installer
 ```
 
 For a **universal binary** (runs natively on both Apple Silicon and Intel):
@@ -70,16 +70,16 @@ rustup target add x86_64-apple-darwin
 pnpm tauri build --target universal-apple-darwin
 ```
 
-Output: `ant-companion_0.1.0_universal.dmg`
+Output: `ant-desktop_0.1.0_universal.dmg`
 
 #### Windows
 
 ```
 src-tauri/target/release/bundle/
 ├── msi/
-│   └── ant-companion_0.1.0_x64_en-US.msi   # WiX installer
+│   └── ant-desktop_0.1.0_x64_en-US.msi   # WiX installer
 └── nsis/
-    └── ant-companion_0.1.0_x64-setup.exe    # NSIS installer
+    └── ant-desktop_0.1.0_x64-setup.exe    # NSIS installer
 ```
 
 To build only one installer type, set in `tauri.conf.json`:
@@ -97,9 +97,9 @@ To build only one installer type, set in `tauri.conf.json`:
 ```
 src-tauri/target/release/bundle/
 ├── deb/
-│   └── ant-companion_0.1.0_amd64.deb    # Debian package
+│   └── ant-desktop_0.1.0_amd64.deb    # Debian package
 └── appimage/
-    └── ant-companion_0.1.0_amd64.AppImage  # Portable
+    └── ant-desktop_0.1.0_amd64.AppImage  # Portable
 ```
 
 ---
@@ -114,14 +114,14 @@ macOS quarantines downloaded apps. Three ways to open an unsigned app:
 
 **Option A: Right-click → Open (simplest)**
 
-1. Right-click (or Control-click) `ant-companion.app`
+1. Right-click (or Control-click) `ant-desktop.app`
 2. Select "Open" from the context menu
 3. Click "Open" in the warning dialog
 
 **Option B: Remove quarantine attribute**
 
 ```bash
-xattr -cr /path/to/ant-companion.app
+xattr -cr /path/to/ant-desktop.app
 ```
 
 Then double-click to open normally.
@@ -130,7 +130,7 @@ Then double-click to open normally.
 
 1. Try to open the app (it will be blocked)
 2. Go to System Settings → Privacy & Security
-3. Scroll down — you'll see "ant-companion was blocked"
+3. Scroll down — you'll see "ant-desktop was blocked"
 4. Click "Open Anyway"
 
 ### Windows — SmartScreen Bypass
@@ -242,11 +242,11 @@ You can verify:
 
 ```bash
 # Check signing
-codesign --verify --deep --strict ant-companion.app
+codesign --verify --deep --strict ant-desktop.app
 
 # Check notarization
-spctl --assess --type exec ant-companion.app
-# Expected: "ant-companion.app: accepted"
+spctl --assess --type exec ant-desktop.app
+# Expected: "ant-desktop.app: accepted"
 ```
 
 ---
@@ -401,7 +401,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'ant-companion ${{ github.ref_name }}'
+          releaseName: 'ant-desktop ${{ github.ref_name }}'
           releaseBody: 'See the assets below to download and install.'
           releaseDraft: true
           prerelease: false
@@ -468,12 +468,12 @@ If you haven't set up signing yet, remove the signing env vars from the workflow
 This is **separate from code signing** — it ensures updates come from you, not a MITM.
 
 ```bash
-pnpm tauri signer generate -w ~/.tauri/ant-companion.key
+pnpm tauri signer generate -w ~/.tauri/ant-desktop.key
 ```
 
 This creates:
-- `~/.tauri/ant-companion.key` — private key (keep secret)
-- `~/.tauri/ant-companion.key.pub` — public key (embed in app)
+- `~/.tauri/ant-desktop.key` — private key (keep secret)
+- `~/.tauri/ant-desktop.key.pub` — public key (embed in app)
 
 You'll be prompted for a password. Remember it.
 
@@ -486,9 +486,9 @@ You'll be prompted for a password. Remember it.
   },
   "plugins": {
     "updater": {
-      "pubkey": "CONTENTS_OF_ant-companion.key.pub",
+      "pubkey": "CONTENTS_OF_ant-desktop.key.pub",
       "endpoints": [
-        "https://github.com/YOUR_ORG/ant-companion/releases/latest/download/latest.json"
+        "https://github.com/YOUR_ORG/ant-desktop/releases/latest/download/latest.json"
       ]
     }
   }
@@ -506,7 +506,7 @@ env:
 ```
 
 Add to GitHub Secrets:
-- `TAURI_SIGNING_PRIVATE_KEY`: contents of `~/.tauri/ant-companion.key`
+- `TAURI_SIGNING_PRIVATE_KEY`: contents of `~/.tauri/ant-desktop.key`
 - `TAURI_SIGNING_KEY_PASSWORD`: the password you chose
 
 ### 6.4 How Auto-Update Works
@@ -577,7 +577,7 @@ Release:
       - macOS: .dmg opens, app installs, tray icon appears
       - Windows: .msi or .exe installs, app runs
       - Linux: .deb installs or .AppImage runs
-  [ ] Deep link works: ant-companion://connect?token=...&server=...
+  [ ] Deep link works: ant-desktop://connect?token=...&server=...
   [ ] WebSocket connects to Ant Cloud
   [ ] Figma MCP proxy works (if Figma is running)
   [ ] Publish the release (click "Publish" on GitHub)
@@ -598,7 +598,7 @@ Post-release:
 | macOS universal | `pnpm tauri build --target universal-apple-darwin` |
 | Debug build | `pnpm tauri build --debug` |
 | Binary only (no installer) | `pnpm tauri build --no-bundle` |
-| Generate updater keys | `pnpm tauri signer generate -w ~/.tauri/ant-companion.key` |
+| Generate updater keys | `pnpm tauri signer generate -w ~/.tauri/ant-desktop.key` |
 | Tag a release | `git tag v0.1.0 && git push origin main --tags` |
-| Verify macOS signing | `codesign --verify --deep --strict ant-companion.app` |
-| Verify notarization | `spctl --assess --type exec ant-companion.app` |
+| Verify macOS signing | `codesign --verify --deep --strict ant-desktop.app` |
+| Verify notarization | `spctl --assess --type exec ant-desktop.app` |

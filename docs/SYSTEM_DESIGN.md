@@ -1,4 +1,4 @@
-# ant-companion System Design
+# ant-desktop System Design
 
 ## 1. Technology Stack
 
@@ -19,7 +19,7 @@
 | `tauri-plugin-autostart` | OS 로그인 시 자동 실행 |
 | `tauri-plugin-updater` | 자동 업데이트 |
 | `tauri-plugin-store` | 로컬 설정 파일 (`realtime_base_url` 등) |
-| `tauri-plugin-deep-link` | 커스텀 URL 스킴 (`ant-companion://`) |
+| `tauri-plugin-deep-link` | 커스텀 URL 스킴 (`ant-desktop://`) |
 | `tauri-plugin-single-instance` | 중복 실행 방지 |
 | `tauri-plugin-log` | 구조화된 로깅 |
 
@@ -44,7 +44,7 @@ Tauri 앱은 두 프로세스로 구성된다:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ ant-companion                                       │
+│ ant-desktop                                       │
 │                                                     │
 │  ┌───────────────────────────────────────────────┐  │
 │  │ Core Process (Rust)                           │  │
@@ -100,7 +100,7 @@ Tauri 앱은 두 프로세스로 구성된다:
 │ User Desktop                     │                  │
 │                                  │                  │
 │  ┌───────────────────────────────┴───────────────┐  │
-│  │           ant-companion (Core Process)        │  │
+│  │           ant-desktop (Core Process)        │  │
 │  └───────────────────────────────┬───────────────┘  │
 │                                  │                  │
 │                    HTTP POST (localhost only)        │
@@ -115,7 +115,7 @@ Tauri 앱은 두 프로세스로 구성된다:
 
 ### 2.3 End-to-End MCP 릴레이 (서버 측 포함)
 
-companion은 WebSocket 한 쪽 끝만 본다. 반대편(Ant Cloud)에서 어떤 일이 일어나는지 이해해야 프로토콜·타임아웃·에러 처리를 올바르게 설계할 수 있다. 아래는 **한 번의 MCP 호출**이 Cloud 내부에서 거치는 전체 경로이다.
+Ant Desktop은 WebSocket 한 쪽 끝만 본다. 반대편(Ant Cloud)에서 어떤 일이 일어나는지 이해해야 프로토콜·타임아웃·에러 처리를 올바르게 설계할 수 있다. 아래는 **한 번의 MCP 호출**이 Cloud 내부에서 거치는 전체 경로이다.
 
 ```
 ┌─ Ant Cloud ────────────────────────────────────────────────────┐
@@ -138,7 +138,7 @@ companion은 WebSocket 한 쪽 끝만 본다. 반대편(Ant Cloud)에서 어떤 
         │                                             │
         │                                             ▼
         │                                      ┌──────────────┐
-        │                                      │ ant-companion │
+        │                                      │ ant-desktop │
         │                                      │  mcp::proxy   │
         │                                      └──────┬───────┘
         │                                             │
@@ -155,7 +155,7 @@ companion은 WebSocket 한 쪽 끝만 본다. 반대편(Ant Cloud)에서 어떤 
         │                                             │
         │                                             ▼
         │                                      ┌──────────────┐
-        │                                      │ ant-companion │
+        │                                      │ ant-desktop │
         │                                      └──────┬───────┘
         │                                             │
         │                                    (5)  MCPResponseMessage
@@ -173,22 +173,22 @@ companion은 WebSocket 한 쪽 끝만 본다. 반대편(Ant Cloud)에서 어떤 
 └────────────────────────────────────────────────────────────────┘
 ```
 
-**companion 관점 요약:**
-- companion이 관여하는 구간은 **(2)~(5)** 뿐이다. (1)과 (6)은 Cloud 내부(Redis Pub/Sub)이며, companion은 이를 알 필요가 없다.
+**Ant Desktop 관점 요약:**
+- Ant Desktop이 관여하는 구간은 **(2)~(5)** 뿐이다. (1)과 (6)은 Cloud 내부(Redis Pub/Sub)이며, Ant Desktop은 이를 알 필요가 없다.
 - WebSocket으로 `MCPRequestMessage`가 오면 Figma에 프록시하고 `MCPResponseMessage`를 돌려보내는 것이 전부이다.
-- 그러나 **타임아웃**은 양쪽에서 건다: Worker 쪽에서 `BRIDGE_MCP_REQUEST_TIMEOUT_MS`만큼 대기하고, companion도 동일 값으로 Figma HTTP 호출을 제한한다. 둘 중 하나라도 먼저 타임아웃되면 에러 응답이 된다.
+- 그러나 **타임아웃**은 양쪽에서 건다: Worker 쪽에서 `BRIDGE_MCP_REQUEST_TIMEOUT_MS`만큼 대기하고, Ant Desktop도 동일 값으로 Figma HTTP 호출을 제한한다. 둘 중 하나라도 먼저 타임아웃되면 에러 응답이 된다.
 
 **왜 Worker가 직접 WebSocket을 안 여는가:**
-- Job Worker는 BullMQ 큐에서 디큐된 자식 프로세스이다. 수명이 짧고, 한 사용자의 companion에 직접 소켓을 열 방법이 없다(사용자 PC의 IP를 모르고, NAT 뒤에 있다).
-- ant-realtime은 이미 companion과 **항시 연결된 WebSocket 세션**을 유지하고 있으므로, Worker는 Redis로 메시지를 보내고 Realtime이 중계하는 것이 자연스럽다.
+- Job Worker는 BullMQ 큐에서 디큐된 자식 프로세스이다. 수명이 짧고, 한 사용자의 Ant Desktop에 직접 소켓을 열 방법이 없다(사용자 PC의 IP를 모르고, NAT 뒤에 있다).
+- ant-realtime은 이미 Ant Desktop과 **항시 연결된 WebSocket 세션**을 유지하고 있으므로, Worker는 Redis로 메시지를 보내고 Realtime이 중계하는 것이 자연스럽다.
 
 ### 2.4 배포 범위 (Cloud vs Local)
 
-ant-companion은 **Ant Cloud**에서 Design Job 워커가 사용자 `localhost`에 접근할 수 없을 때 필요하다. **로컬 개발 모드**(API·워커·Redis가 같은 머신)에서는 워커가 직접 `http://127.0.0.1:3845/mcp`를 호출할 수 있으므로 companion 없이 MCP를 사용할 수 있다. Figma 완전 연동(PRD §1.3 Tier 2)은 Cloud 사용자를 주 대상으로 설명한다.
+ant-desktop은 **Ant Cloud**에서 Design Job 워커가 사용자 `localhost`에 접근할 수 없을 때 필요하다. **로컬 개발 모드**(API·워커·Redis가 같은 머신)에서는 워커가 직접 `http://127.0.0.1:3845/mcp`를 호출할 수 있으므로 Ant Desktop 없이 MCP를 사용할 수 있다. Figma 완전 연동(PRD §1.3 Tier 2)은 Cloud 사용자를 주 대상으로 설명한다.
 
 ### 2.5 서버 베이스 URL (설정·프리셋·WebSocket 조합)
 
-companion은 ant-cli가 **로컬인지 클라우드인지 자동 탐지하지 않는다.** 사용자가 설정에 넣은 **HTTP(S) 오리진**만 사용한다.
+Ant Desktop은 ant-cli가 **로컬인지 클라우드인지 자동 탐지하지 않는다.** 사용자가 설정에 넣은 **HTTP(S) 오리진**만 사용한다.
 
 **저장 값 (`tauri-plugin-store`):**
 
@@ -231,7 +231,7 @@ src-tauri/src/
 │   ├── mod.rs
 │   ├── jwt.rs           # JWT payload Base64URL 디코딩, userId(sub) 추출 (서명 검증 없음)
 │   ├── keychain.rs      # OS Keychain 읽기/쓰기 (JWT만)
-│   └── deeplink.rs      # ant-companion:// 딥링크 핸들러
+│   └── deeplink.rs      # ant-desktop:// 딥링크 핸들러
 ├── health/
 │   ├── mod.rs
 │   └── figma_check.rs   # Figma Desktop MCP healthcheck
@@ -318,7 +318,7 @@ tauri::Builder::default()
 
 **책임:**
 - WebSocket 연결 수립 (TLS, Authorization 헤더)
-- JWT 페이로드에서 `sub`(또는 ant-cli가 사용하는 사용자 ID 클레임)를 읽어 **`BridgeRegisterMessage.userId`**에 채움 (서명 검증은 서버가 하며, companion은 표시·등록용으로만 디코딩)
+- JWT 페이로드에서 `sub`(또는 ant-cli가 사용하는 사용자 ID 클레임)를 읽어 **`BridgeRegisterMessage.userId`**에 채움 (서명 검증은 서버가 하며, Ant Desktop은 표시·등록용으로만 디코딩)
 - `BridgeRegisterMessage` 전송 (연결 직후)
 - `BridgeHeartbeatMessage` 전송 (30초 간격)
 - `MCPRequestMessage` 수신 → `mcp::proxy`로 전달 → `MCPResponseMessage` 전송
@@ -397,7 +397,7 @@ MCPResponseMessage (WebSocket)
 
 **동시 요청 (MVP):** `tokio::sync::Mutex` 등으로 **Figma MCP HTTP 호출을 전역 직렬화**한다. WebSocket에서 동시에 여러 `MCPRequestMessage`가 도착하면 한 번에 하나만 `127.0.0.1:3845`로 전달한다. 순서는 수신 순서(FIFO)를 기본으로 한다.
 
-**대용량 응답:** MCP JSON-RPC 응답 전체를 문자열로 직렬화한 뒤 WebSocket 텍스트 프레임으로 보낸다. 바이너리 필드는 MCP 스키마에 따라 Base64로 임베드된 상태로 전달된다. 단일 메시지가 구현 상한(예: 16MiB)을 넘으면 companion은 `MCPResponseMessage`에 `error`를 설정하고 Cloud에 알린다.
+**대용량 응답:** MCP JSON-RPC 응답 전체를 문자열로 직렬화한 뒤 WebSocket 텍스트 프레임으로 보낸다. 바이너리 필드는 MCP 스키마에 따라 Base64로 임베드된 상태로 전달된다. 단일 메시지가 구현 상한(예: 16MiB)을 넘으면 Ant Desktop은 `MCPResponseMessage`에 `error`를 설정하고 Cloud에 알린다.
 
 ### 3.6 auth/keychain.rs — Keychain Manager
 
@@ -410,13 +410,13 @@ JWT 토큰을 OS 네이티브 자격 증명 저장소에 안전하게 보관한�
 | Linux | libsecret (GNOME Keyring) | `keyring` |
 
 **저장 항목 (Keychain 전용):**
-- `ant-companion/jwt` — JWT 토큰
+- `ant-desktop/jwt` — JWT 토큰
 
 **비밀 아님:** Ant Cloud 베이스 URL(`https://...`)은 **tauri-plugin-store**에만 저장한다. Keychain에 서버 URL을 중복 저장하지 않는다 (PRD·보안 모델과 일치).
 
 ### 3.7 auth/deeplink.rs — Deep Link Handler
 
-`ant-companion://connect?token={jwt}&server={url}` 형식의 딥링크를 처리한다.
+`ant-desktop://connect?token={jwt}&server={url}` 형식의 딥링크를 처리한다.
 
 **처리 흐름:**
 1. URL 파싱 → `token`, `server` 쿼리 파라미터 추출
@@ -453,7 +453,7 @@ Figma Desktop MCP의 가용성을 주기적으로 확인한다.
 **메뉴 항목:**
 
 ```
-ant-companion
+ant-desktop
 ─────────────────────
 ● Ant Cloud 연결됨          (상태 표시)
 ● Figma Desktop 감지됨      (상태 표시)
@@ -551,7 +551,7 @@ Core Process가 UI에 상태 변경을 알리는 이벤트:
 ### 5.1 Connection Lifecycle
 
 ```
-                ant-companion              ant-realtime (Cloud)
+                ant-desktop              ant-realtime (Cloud)
                      │                           │
                      │──── WebSocket CONNECT ────▶│
                      │     Authorization: Bearer  │
@@ -613,18 +613,18 @@ JSON-RPC Response                    MCPResponseMessage
 ### 5.3 Deeplink Authentication Flow
 
 ```
-    ant-ui (Browser)          ant-api            OS            ant-companion
+    ant-ui (Browser)          ant-api            OS            ant-desktop
          │                      │                │                  │
          │── POST ─────────────▶│                │                  │
          │   /api/auth/         │                │                  │
-         │   companion-token    │                │                  │
+         │   desktop-token    │                │                  │
          │   (cookie auth)      │                │                  │
          │                      │                │                  │
          │◀── { token, ────────│                │                  │
          │     expiresAt }      │                │                  │
          │                      │                │                  │
          │── window.open() ────────────────────▶│                  │
-         │   ant-companion://connect             │                  │
+         │   ant-desktop://connect             │                  │
          │   ?token={jwt}                        │                  │
          │   &server={url}                       │                  │
          │                      │                │                  │
@@ -708,9 +708,9 @@ JSON-RPC Response                    MCPResponseMessage
 
 ## 8. @ant/shared Type Mapping
 
-ant-companion의 Rust 구조체와 `@ant/shared/src/figma.ts` TypeScript 타입 간의 매핑:
+ant-desktop의 Rust 구조체와 `@ant/shared/src/figma.ts` TypeScript 타입 간의 매핑:
 
-| TypeScript (@ant/shared) | Rust (ant-companion) | 용도 |
+| TypeScript (@ant/shared) | Rust (ant-desktop) | 용도 |
 |--------------------------|---------------------|------|
 | `BridgeMessage` | `enum BridgeMessage` | WebSocket 메시지 union |
 | `BridgeRegisterMessage` | `struct RegisterMessage` | 연결 등록 |

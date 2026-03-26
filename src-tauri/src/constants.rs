@@ -13,5 +13,5 @@ pub const DEFAULT_CLOUD_URL: &str = "https://ant.crosstoken.io";
 pub const DEFAULT_LOCAL_HOST: &str = "http://127.0.0.1";
 pub const DEFAULT_LOCAL_PORT: u16 = 4101;
 
-pub const KEYCHAIN_SERVICE: &str = "ant-companion";
+pub const KEYCHAIN_SERVICE: &str = "ant-desktop";
 pub const KEYCHAIN_JWT_KEY: &str = "jwt";

@@ -11,7 +11,7 @@ pub fn parse_connect_url(url_str: &str) -> Result<DeepLinkParams, AuthError> {
     let url = Url::parse(url_str)
         .map_err(|e| AuthError::InvalidDeepLink(format!("URL parse error: {e}")))?;
 
-    if url.scheme() != "ant-companion" {
+    if url.scheme() != "ant-desktop" {
         return Err(AuthError::InvalidDeepLink(format!(
             "unexpected scheme: {}",
             url.scheme()
@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn parse_valid_deep_link() {
         let params = parse_connect_url(
-            "ant-companion://connect?token=test-jwt-123&server=https://ant.crosstoken.io",
+            "ant-desktop://connect?token=test-jwt-123&server=https://ant.crosstoken.io",
         )
         .unwrap();
         assert_eq!(params.token, "test-jwt-123");
@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn parse_local_server() {
         let params = parse_connect_url(
-            "ant-companion://connect?token=jwt&server=http://127.0.0.1:4101",
+            "ant-desktop://connect?token=jwt&server=http://127.0.0.1:4101",
         )
         .unwrap();
         assert_eq!(params.server, "http://127.0.0.1:4101");
@@ -65,12 +65,12 @@ mod tests {
 
     #[test]
     fn parse_missing_token() {
-        assert!(parse_connect_url("ant-companion://connect?server=http://localhost:4101").is_err());
+        assert!(parse_connect_url("ant-desktop://connect?server=http://localhost:4101").is_err());
     }
 
     #[test]
     fn parse_missing_server() {
-        assert!(parse_connect_url("ant-companion://connect?token=abc").is_err());
+        assert!(parse_connect_url("ant-desktop://connect?token=abc").is_err());
     }
 
     #[test]

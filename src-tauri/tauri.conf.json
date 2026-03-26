@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegist/nicegist-tools/main/schema.json",
-  "productName": "ant-companion",
+  "productName": "ant-desktop",
   "version": "0.1.0",
-  "identifier": "com.ant.companion",
+  "identifier": "com.ant.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ant-companion",
+        "title": "Ant Desktop",
         "label": "main",
         "width": 480,
         "height": 600,
@@ -39,7 +39,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["ant-companion"]
+        "schemes": ["ant-desktop"]
       }
     }
   }

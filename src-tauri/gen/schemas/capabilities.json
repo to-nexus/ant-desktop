@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default permissions for ant-companion","local":true,"windows":["main"],"permissions":["core:default","log:default","deep-link:default","store:default"]}}
+{"default":{"identifier":"default","description":"Default permissions for ant-desktop","local":true,"windows":["main"],"permissions":["core:default","log:default","deep-link:default","store:default"]}}

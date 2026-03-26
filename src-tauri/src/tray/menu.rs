@@ -66,7 +66,7 @@ pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<TrayHandle<R>
         .icon(default_icon())
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .tooltip("ant-companion")
+        .tooltip("Ant Desktop")
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "settings" | "logs" => {
                 if let Some(window) = app.get_webview_window("main") {

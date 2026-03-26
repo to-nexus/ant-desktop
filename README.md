@@ -1,15 +1,15 @@
-# ant-companion
+# ant-desktop
 
-A lightweight desktop companion app that bridges [Figma Desktop MCP](https://www.figma.com/) (`localhost:3845`) with Ant Cloud, enabling Ant's Design Jobs to access Figma's rich design analysis capabilities.
+A lightweight desktop app that bridges [Figma Desktop MCP](https://www.figma.com/) (`localhost:3845`) with Ant Cloud, enabling Ant's Design Jobs to access Figma's rich design analysis capabilities.
 
 ## Why
 
-Figma Desktop MCP is only accessible at `http://127.0.0.1:3845/mcp`. Ant Cloud workers run remotely and cannot reach a user's localhost. ant-companion runs on the user's desktop, maintains an outbound WebSocket to Ant Cloud, and relays MCP requests/responses between the two.
+Figma Desktop MCP is only accessible at `http://127.0.0.1:3845/mcp`. Ant Cloud workers run remotely and cannot reach a user's localhost. ant-desktop runs on the user's desktop, maintains an outbound WebSocket to Ant Cloud, and relays MCP requests/responses between the two.
 
 ```
 Ant Cloud (Design Job Worker)
     ↕  WebSocket (outbound from desktop)
-ant-companion (User Desktop)
+ant-desktop (User Desktop)
     ↕  HTTP POST (localhost only)
 Figma Desktop MCP (127.0.0.1:3845)
 ```
@@ -41,7 +41,7 @@ The app starts in the system tray. Click the tray icon to open the settings wind
 ### Deep Link Testing (macOS)
 
 ```bash
-open "ant-companion://connect?token=test-jwt&server=http://127.0.0.1:4101"
+open "ant-desktop://connect?token=test-jwt&server=http://127.0.0.1:4101"
 ```
 
 ### Figma MCP Verification
@@ -67,12 +67,13 @@ See [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) for signing, CI/CD, and
 ## Project Structure
 
 ```
-ant-companion/
+ant-desktop/
 ├── docs/                        # Product & architecture docs (SSOT)
 │   ├── PRD.md                   # Requirements, tiers, protocol contract
 │   ├── SYSTEM_DESIGN.md         # Architecture, modules, serde mapping
 │   ├── DEVELOPMENT_GUIDE.md     # Scaffolding, conventions, phase roadmap
-│   └── DEPLOYMENT_GUIDE.md      # Build, sign, distribute, auto-update
+│   ├── DEPLOYMENT_GUIDE.md      # Build, sign, distribute, auto-update
+│   └── RELEASE_GUIDE.md         # Step-by-step release process for DevOps
 ├── src/                         # React frontend (TypeScript)
 │   ├── App.tsx                  # Tab navigation (Status / Settings / Logs)
 │   ├── pages/                   # StatusPage, SettingsPage, LogsPage
@@ -119,6 +120,7 @@ cargo clippy                # Lint
 | [System Design](docs/SYSTEM_DESIGN.md) | Architecture, module structure, protocol, state machines |
 | [Development Guide](docs/DEVELOPMENT_GUIDE.md) | Setup, coding conventions, implementation phases |
 | [Deployment Guide](docs/DEPLOYMENT_GUIDE.md) | Build, code signing, CI/CD, auto-update, distribution |
+| [Release Guide](docs/RELEASE_GUIDE.md) | Step-by-step release process for DevOps team |
 
 ## Tech Stack
 
