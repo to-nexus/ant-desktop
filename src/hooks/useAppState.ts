@@ -2,14 +2,16 @@ import { useEffect, useState, useCallback } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { type AppStateSnapshot, getAppState } from "../lib/tauri";
 
-const isTauri = typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+function checkTauri(): boolean {
+  return typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+}
 
 export function useAppState() {
   const [state, setState] = useState<AppStateSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!isTauri) return;
+    if (!checkTauri()) return;
     try {
       const snapshot = await getAppState();
       setState(snapshot);
@@ -24,7 +26,7 @@ export function useAppState() {
 
     const unlisteners: Promise<UnlistenFn>[] = [];
 
-    if (isTauri) {
+    if (checkTauri()) {
       unlisteners.push(listen("connection-status-changed", () => refresh()));
       unlisteners.push(listen("figma-status-changed", () => refresh()));
       unlisteners.push(listen("mcp-request-processed", () => refresh()));

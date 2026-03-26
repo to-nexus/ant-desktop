@@ -11,6 +11,7 @@ pub mod tray;
 use state::{AppState, SharedAppState};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Listener, Manager, Runtime};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_store::StoreExt;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -34,18 +35,18 @@ pub fn replace_token(shared: &SharedCancellationToken) -> CancellationToken {
     }
 }
 
-/// Spawn bridge + health background tasks with the given token.
-pub fn spawn_connection_tasks<R: Runtime>(
+/// Spawn bridge background task with the given token.
+/// Health check runs independently (spawned once at startup).
+pub fn spawn_bridge_task<R: Runtime>(
     token: CancellationToken,
     state: SharedAppState,
     app: tauri::AppHandle<R>,
 ) {
     tauri::async_runtime::spawn(bridge::client::run_loop(
-        token.clone(),
-        state.clone(),
-        app.clone(),
+        token,
+        state,
+        app,
     ));
-    tauri::async_runtime::spawn(health::figma_check::check_loop(token, state, app));
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -80,8 +81,12 @@ pub fn run() {
                 let handle = tray_handle.clone();
                 let state = app.state::<SharedAppState>().inner().clone();
                 app.listen("connection-status-changed", move |_event| {
-                    if let Ok(s) = state.try_lock() {
-                        tray::update_tray(&handle, &s.connection_status, &s.figma_status);
+                    match state.lock() {
+                        Ok(s) => tray::update_tray(&handle, &s.connection_status, &s.figma_status),
+                        Err(poisoned) => {
+                            let s = poisoned.into_inner();
+                            tray::update_tray(&handle, &s.connection_status, &s.figma_status);
+                        }
                     }
                 });
             }
@@ -89,25 +94,42 @@ pub fn run() {
                 let handle = tray_handle;
                 let state = app.state::<SharedAppState>().inner().clone();
                 app.listen("figma-status-changed", move |_event| {
-                    if let Ok(s) = state.try_lock() {
-                        tray::update_tray(&handle, &s.connection_status, &s.figma_status);
+                    match state.lock() {
+                        Ok(s) => tray::update_tray(&handle, &s.connection_status, &s.figma_status),
+                        Err(poisoned) => {
+                            let s = poisoned.into_inner();
+                            tray::update_tray(&handle, &s.connection_status, &s.figma_status);
+                        }
                     }
                 });
             }
 
+            // Health check runs independently for the entire app lifetime.
             {
-                let token = app.state::<SharedCancellationToken>().inner().lock().expect("initial token lock").clone();
+                let health_token = CancellationToken::new();
                 let health_state = app.state::<SharedAppState>().inner().clone();
                 let health_app = app.handle().clone();
                 tauri::async_runtime::spawn(health::figma_check::check_loop(
-                    token,
+                    health_token,
                     health_state,
                     health_app,
                 ));
             }
 
             setup_deep_link(app);
-            try_restore_session(app);
+
+            // Keychain + bridge init run off the main thread to avoid
+            // blocking the macOS event loop (keychain access can stall).
+            {
+                let app_handle = app.handle().clone();
+                let state = app.state::<SharedAppState>().inner().clone();
+                let shared_token = app.state::<SharedCancellationToken>().inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    if !try_restore_session_async(&app_handle, &state, &shared_token) {
+                        try_probe_connection_async(&app_handle, &state, &shared_token);
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -117,94 +139,144 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-
-fn setup_deep_link(app: &tauri::App) {
-    let handle = app.handle().clone();
-    app.listen("deep-link://new-url", move |event| {
-        let payload = event.payload();
-        let urls: Vec<String> = match serde_json::from_str(payload) {
-            Ok(u) => u,
-            Err(_) => vec![payload.to_string()],
-        };
-
-        for url_str in urls {
-            let url_str = url_str.trim_matches('"');
-            info!(url = %url_str, "deep link received");
-
-            if let Ok(params) = auth::deeplink::parse_connect_url(url_str) {
-                let user_id = auth::jwt::decode_user_id(&params.token).ok();
-
-                if let Err(e) = auth::keychain::save_jwt(&params.token) {
-                    tracing::error!("failed to save JWT: {e}");
-                }
-
-                let state = handle.state::<SharedAppState>();
-                let shared_token = handle.state::<SharedCancellationToken>();
-
-                let new_token = replace_token(shared_token.inner());
-
-                if let Ok(mut s) = state.lock() {
-                    s.server_url = Some(params.server.clone());
-                    s.jwt = Some(params.token);
-                    s.user_id = user_id;
-                    s.connection_status = state::ConnectionStatus::Initial;
-                }
-
-                save_server_url(&handle, &params.server);
-
-                spawn_connection_tasks(new_token, state.inner().clone(), handle.clone());
-
-                let _ = handle.emit(
-                    "auth-received",
-                    serde_json::json!({ "server": params.server }),
-                );
-
-                if let Some(window) = handle.get_webview_window("main") {
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
             }
-        }
-    });
+        });
 }
 
-fn try_restore_session(app: &tauri::App) {
+fn setup_deep_link(app: &tauri::App) {
+    let handle = app.handle().clone();
+
+    app.deep_link().on_open_url(move |event| {
+        let urls = event.urls();
+        info!(count = urls.len(), "deep link on_open_url fired");
+        for url in &urls {
+            process_deep_link_url(&handle, url.as_str());
+        }
+    });
+
+    if let Ok(Some(urls)) = app.deep_link().get_current() {
+        let handle = app.handle().clone();
+        info!(count = urls.len(), "deep link get_current found initial URLs");
+        for url in urls {
+            process_deep_link_url(&handle, url.as_str());
+        }
+    }
+}
+
+fn process_deep_link_url<R: Runtime>(handle: &tauri::AppHandle<R>, url_str: &str) {
+    info!(url = %url_str, "deep link received");
+
+    let params = match auth::deeplink::parse_connect_url(url_str) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(url = %url_str, error = %e, "failed to parse deep link");
+            return;
+        }
+    };
+
+    let user_id = auth::jwt::decode_user_id(&params.token).ok();
+
+    if let Err(e) = auth::keychain::save_jwt(&params.token) {
+        tracing::error!("failed to save JWT: {e}");
+    }
+
+    let state = handle.state::<SharedAppState>();
+    let shared_token = handle.state::<SharedCancellationToken>();
+
+    let new_token = replace_token(shared_token.inner());
+
+    if let Ok(mut s) = state.lock() {
+        s.server_url = Some(params.server.clone());
+        s.jwt = Some(params.token);
+        s.user_id = user_id;
+        s.connection_status = state::ConnectionStatus::Initial;
+    }
+
+    save_server_url(handle, &params.server);
+
+    spawn_bridge_task(new_token, state.inner().clone(), handle.clone());
+
+    let _ = handle.emit(
+        "auth-received",
+        serde_json::json!({ "server": params.server }),
+    );
+
+    if let Some(window) = handle.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Try to restore a previous session from keychain. Returns true if restored.
+/// Runs off the main thread to avoid blocking the macOS event loop.
+fn try_restore_session_async<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    state: &SharedAppState,
+    shared_token: &SharedCancellationToken,
+) -> bool {
     let jwt = match auth::keychain::load_jwt() {
         Ok(Some(jwt)) => jwt,
-        _ => return,
+        _ => return false,
     };
 
     let user_id = match auth::jwt::decode_user_id(&jwt) {
         Ok(uid) => uid,
-        Err(_) => return,
+        Err(_) => return false,
     };
 
-    let server_url = load_server_url(app.handle());
+    let server_url = load_server_url(app);
     let server_url = match server_url {
         Some(url) => url,
-        None => return,
+        None => return false,
     };
 
     info!(server = %server_url, "restoring session from keychain/store");
 
-    let state = app.state::<SharedAppState>();
     if let Ok(mut s) = state.lock() {
         s.server_url = Some(server_url);
         s.jwt = Some(jwt);
         s.user_id = Some(user_id);
     }
 
-    let token = match app.state::<SharedCancellationToken>().inner().lock() {
+    let token = match shared_token.lock() {
+        Ok(t) => t.clone(),
+        Err(_) => return false,
+    };
+
+    spawn_bridge_task(token, state.clone(), app.clone());
+    true
+}
+
+/// Start a probe connection (no JWT) to the default local server.
+/// Runs off the main thread to avoid blocking the macOS event loop.
+fn try_probe_connection_async<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    state: &SharedAppState,
+    shared_token: &SharedCancellationToken,
+) {
+    let server_url = load_server_url(app)
+        .unwrap_or_else(|| format!("{}:{}", constants::DEFAULT_LOCAL_HOST, constants::DEFAULT_LOCAL_PORT));
+
+    info!(server = %server_url, "starting probe connection (no JWT)");
+
+    if let Ok(mut s) = state.lock() {
+        s.server_url = Some(server_url);
+    }
+
+    let token = match shared_token.lock() {
         Ok(t) => t.clone(),
         Err(_) => return,
     };
-    let shared_state = state.inner().clone();
-    let app_handle = app.handle().clone();
 
-    tauri::async_runtime::spawn(bridge::client::run_loop(token, shared_state, app_handle));
+    spawn_bridge_task(token, state.clone(), app.clone());
 }
 
 pub fn save_server_url<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &str) {

@@ -1,28 +1,19 @@
 import { useAppState } from "../hooks/useAppState";
 import StatusIndicator from "../components/StatusIndicator";
 import ConnectionCard from "../components/ConnectionCard";
+import AntIcon from "../components/icons/AntIcon";
+import FigmaIcon from "../components/icons/FigmaIcon";
 
-function connectionStatusToIndicator(
-  status: string,
-  serverUrl: string | null,
-) {
-  const serverName = serverUrl
-    ? serverUrl.includes("127.0.0.1") || serverUrl.includes("localhost")
-      ? "Local Server"
-      : "Ant Cloud"
-    : "Server";
+function connectionStatusToIndicator(status: string) {
   switch (status) {
     case "connected":
-      return { status: "connected" as const, label: `${serverName} Connected` };
+      return { status: "connected" as const, label: "Connected" };
     case "connecting":
-      return { status: "warning" as const, label: `${serverName}: Connecting...` };
+      return { status: "warning" as const, label: "Connecting..." };
     case "reconnecting":
-      return { status: "warning" as const, label: `${serverName}: Reconnecting...` };
+      return { status: "warning" as const, label: "Reconnecting..." };
     case "authRequired":
-      return {
-        status: "inactive" as const,
-        label: "Authentication Required",
-      };
+      return { status: "inactive" as const, label: "Authentication Required" };
     case "disconnected":
       return { status: "error" as const, label: "Disconnected" };
     default:
@@ -33,14 +24,11 @@ function connectionStatusToIndicator(
 function figmaStatusToIndicator(status: string) {
   switch (status) {
     case "available":
-      return { status: "connected" as const, label: "Figma Desktop Detected" };
+      return { status: "connected" as const, label: "Connected" };
     case "unavailable":
-      return {
-        status: "warning" as const,
-        label: "Figma Desktop Not Running",
-      };
+      return { status: "error" as const, label: "Not Connected" };
     default:
-      return { status: "inactive" as const, label: "Figma Status Unknown" };
+      return { status: "inactive" as const, label: "Unknown" };
   }
 }
 
@@ -68,13 +56,14 @@ function StatusPage() {
     return <div className="text-neutral-500 text-sm p-4">Loading...</div>;
   }
 
-  const conn = connectionStatusToIndicator(state.connectionStatus, state.serverUrl);
+  const conn = connectionStatusToIndicator(state.connectionStatus);
   const figma = figmaStatusToIndicator(state.figmaStatus);
 
   return (
     <div className="space-y-4">
-      <ConnectionCard title="Connection">
+      <ConnectionCard title="Ant Server">
         <StatusIndicator
+          icon={<AntIcon size={24} />}
           status={conn.status}
           label={conn.label}
           detail={state.serverUrl ?? "No server configured"}
@@ -83,9 +72,10 @@ function StatusPage() {
 
       <ConnectionCard title="Figma Desktop">
         <StatusIndicator
+          icon={<FigmaIcon size={24} />}
           status={figma.status}
           label={figma.label}
-          detail="127.0.0.1:3845 (Figma MCP)"
+          detail="localhost:3845"
         />
       </ConnectionCard>
 

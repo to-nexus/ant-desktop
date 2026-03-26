@@ -25,6 +25,7 @@ pub struct RegisterMessage {
     pub user_id: String,
     pub machine_id: String,
     pub capabilities: Vec<BridgeCapability>,
+    pub figma_desktop_reachable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

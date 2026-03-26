@@ -3,7 +3,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::error::AppError;
 use crate::state::{AppStateSnapshot, ConnectionStatus, SharedAppState};
-use crate::{auth, replace_token, save_server_url, spawn_connection_tasks, SharedCancellationToken};
+use crate::{auth, replace_token, save_server_url, spawn_bridge_task, SharedCancellationToken};
 
 #[tauri::command]
 pub async fn get_app_state(state: tauri::State<'_, SharedAppState>) -> Result<AppStateSnapshot, AppError> {
@@ -41,9 +41,7 @@ pub async fn disconnect<R: Runtime>(
     state: tauri::State<'_, SharedAppState>,
     shared_token: tauri::State<'_, SharedCancellationToken>,
 ) -> Result<(), AppError> {
-    if let Ok(guard) = shared_token.lock() {
-        guard.cancel();
-    }
+    let new_token = replace_token(shared_token.inner());
 
     let _ = auth::keychain::delete_jwt();
 
@@ -51,15 +49,19 @@ pub async fn disconnect<R: Runtime>(
         let mut s = state
             .lock()
             .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
-        s.connection_status = ConnectionStatus::Disconnected;
+        s.connection_status = ConnectionStatus::AuthRequired;
         s.jwt = None;
         s.user_id = None;
     }
 
     let _ = app.emit(
         "connection-status-changed",
-        ConnectionStatus::Disconnected,
+        ConnectionStatus::AuthRequired,
     );
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    spawn_bridge_task(new_token, state.inner().clone(), app);
 
     Ok(())
 }
@@ -90,7 +92,7 @@ pub async fn connect<R: Runtime>(
         s.connection_status = ConnectionStatus::Initial;
     }
 
-    spawn_connection_tasks(new_token, state.inner().clone(), app);
+    spawn_bridge_task(new_token, state.inner().clone(), app);
 
     Ok(())
 }
@@ -104,18 +106,15 @@ pub async fn set_realtime_base_url<R: Runtime>(
 ) -> Result<(), AppError> {
     save_server_url(&app, &url);
 
-    let has_jwt = {
+    {
         let mut s = state
             .lock()
             .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
         s.server_url = Some(url);
-        s.jwt.is_some()
-    };
-
-    if has_jwt {
-        let new_token = replace_token(shared_token.inner());
-        spawn_connection_tasks(new_token, state.inner().clone(), app);
     }
+
+    let new_token = replace_token(shared_token.inner());
+    spawn_bridge_task(new_token, state.inner().clone(), app);
 
     Ok(())
 }

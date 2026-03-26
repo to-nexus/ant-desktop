@@ -78,16 +78,8 @@ pub async fn run_loop<R: Runtime>(
             }
         };
 
-        let (Some(server_url), Some(jwt)) = (server_url, jwt) else {
-            set_connection_status(&app, &state, ConnectionStatus::AuthRequired);
-            tokio::select! {
-                _ = token.cancelled() => return,
-                _ = tokio::time::sleep(Duration::from_secs(2)) => continue,
-            }
-        };
-
-        let user_id = match user_id {
-            Some(uid) => uid,
+        let server_url = match server_url {
+            Some(url) => url,
             None => {
                 set_connection_status(&app, &state, ConnectionStatus::AuthRequired);
                 tokio::select! {
@@ -96,6 +88,9 @@ pub async fn run_loop<R: Runtime>(
                 }
             }
         };
+
+        let is_probe = jwt.is_none();
+        let user_id = user_id.unwrap_or_else(|| "probe".to_string());
 
         let ws_url = match build_ws_url(&server_url) {
             Ok(u) => u,
@@ -113,7 +108,7 @@ pub async fn run_loop<R: Runtime>(
         };
 
         set_connection_status(&app, &state, ConnectionStatus::Connecting);
-        info!(url = %ws_url, "connecting to bridge");
+        info!(url = %ws_url, probe = is_probe, "connecting to bridge");
 
         let mut request = match ws_url.into_client_request() {
             Ok(r) => r,
@@ -129,10 +124,12 @@ pub async fn run_loop<R: Runtime>(
             }
         };
 
-        request.headers_mut().insert(
-            "Authorization",
-            format!("Bearer {jwt}").parse().unwrap(),
-        );
+        if let Some(ref jwt) = jwt {
+            request.headers_mut().insert(
+                "Authorization",
+                format!("Bearer {jwt}").parse().unwrap(),
+            );
+        }
 
         let ws_stream = tokio::select! {
             _ = token.cancelled() => return,
@@ -158,11 +155,16 @@ pub async fn run_loop<R: Runtime>(
             }
         };
 
-        info!("connected to bridge");
-        set_connection_status(&app, &state, ConnectionStatus::Connected);
+        if is_probe {
+            info!("probe connected (waiting for deep link auth)");
+            set_connection_status(&app, &state, ConnectionStatus::AuthRequired);
+        } else {
+            info!("connected to bridge (authenticated)");
+            set_connection_status(&app, &state, ConnectionStatus::Connected);
+        }
         retry_delay = Duration::from_millis(RECONNECT_BASE_DELAY_MS);
 
-        let _figma_reachable = state
+        let figma_reachable = state
             .lock()
             .map(|s| s.figma_status == FigmaStatus::Available)
             .unwrap_or(false);
@@ -174,7 +176,7 @@ pub async fn run_loop<R: Runtime>(
             &app,
             &user_id,
             &machine_id,
-            _figma_reachable,
+            figma_reachable,
         )
         .await
         {
@@ -204,19 +206,23 @@ async fn handle_session<R: Runtime>(
     app: &AppHandle<R>,
     user_id: &str,
     machine_id: &str,
-    _figma_reachable: bool,
+    figma_reachable: bool,
 ) -> Result<(), super::BridgeError> {
     let register = BridgeMessage::Register(RegisterMessage {
         user_id: user_id.to_string(),
         machine_id: machine_id.to_string(),
         capabilities: vec![BridgeCapability::FigmaMcp],
+        figma_desktop_reachable: figma_reachable,
     });
     send_message(&mut ws, &register).await?;
-    info!("sent register message");
+    info!(figma_reachable, "sent register message");
 
     let mut heartbeat_interval =
         tokio::time::interval(Duration::from_millis(BRIDGE_HEARTBEAT_INTERVAL_MS));
-    heartbeat_interval.tick().await;
+
+    let supplementary_hb = tokio::time::sleep(Duration::from_secs(5));
+    tokio::pin!(supplementary_hb);
+    let mut supplementary_sent = false;
 
     loop {
         tokio::select! {
@@ -240,6 +246,19 @@ async fn handle_session<R: Runtime>(
                 if let Ok(mut s) = state.lock() {
                     s.last_heartbeat = Some(std::time::Instant::now());
                 }
+            }
+
+            _ = &mut supplementary_hb, if !supplementary_sent => {
+                supplementary_sent = true;
+                let figma = state.lock()
+                    .map(|s| s.figma_status == FigmaStatus::Available)
+                    .unwrap_or(false);
+                let heartbeat = BridgeMessage::Heartbeat(HeartbeatMessage {
+                    timestamp: now_ms(),
+                    figma_desktop_reachable: Some(figma),
+                });
+                send_message(&mut ws, &heartbeat).await?;
+                info!(figma, "sent supplementary heartbeat (5s after register)");
             }
 
             msg = ws.next() => {

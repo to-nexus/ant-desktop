@@ -7,46 +7,10 @@ use tauri::{
 
 use crate::state::{ConnectionStatus, FigmaStatus};
 
-const ICON_SIZE: u32 = 22;
+static ICON_DEFAULT: &[u8] = include_bytes!("../../icons/32x32.png");
 
-fn create_colored_icon(r: u8, g: u8, b: u8) -> Vec<u8> {
-    let size = ICON_SIZE as usize;
-    let mut rgba = Vec::with_capacity(size * size * 4);
-    let center = size as f64 / 2.0;
-    let radius = center - 1.0;
-
-    for y in 0..size {
-        for x in 0..size {
-            let dx = x as f64 - center;
-            let dy = y as f64 - center;
-            let dist = (dx * dx + dy * dy).sqrt();
-            if dist <= radius {
-                rgba.extend_from_slice(&[r, g, b, 255]);
-            } else if dist <= radius + 1.0 {
-                let alpha = ((radius + 1.0 - dist) * 255.0) as u8;
-                rgba.extend_from_slice(&[r, g, b, alpha]);
-            } else {
-                rgba.extend_from_slice(&[0, 0, 0, 0]);
-            }
-        }
-    }
-    rgba
-}
-
-pub fn icon_connected() -> Image<'static> {
-    Image::new_owned(create_colored_icon(34, 197, 94), ICON_SIZE, ICON_SIZE)
-}
-
-pub fn icon_warning() -> Image<'static> {
-    Image::new_owned(create_colored_icon(245, 158, 11), ICON_SIZE, ICON_SIZE)
-}
-
-pub fn icon_error() -> Image<'static> {
-    Image::new_owned(create_colored_icon(239, 68, 68), ICON_SIZE, ICON_SIZE)
-}
-
-pub fn icon_inactive() -> Image<'static> {
-    Image::new_owned(create_colored_icon(156, 163, 175), ICON_SIZE, ICON_SIZE)
+fn default_icon() -> Image<'static> {
+    Image::from_bytes(ICON_DEFAULT).expect("embedded icon must be valid")
 }
 
 pub struct TrayHandle<R: Runtime> {
@@ -68,8 +32,8 @@ fn connection_status_label(status: &ConnectionStatus) -> &'static str {
 
 fn figma_status_label(status: &FigmaStatus) -> &'static str {
     match status {
-        FigmaStatus::Available => "Figma Desktop: Detected",
-        FigmaStatus::Unavailable => "Figma Desktop: Not Running",
+        FigmaStatus::Available => "Figma Desktop: Connected",
+        FigmaStatus::Unavailable => "Figma Desktop: Not Connected",
         FigmaStatus::Unknown => "Figma Desktop: Unknown",
     }
 }
@@ -99,7 +63,7 @@ pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<TrayHandle<R>
     )?;
 
     let tray = TrayIconBuilder::new()
-        .icon(icon_inactive())
+        .icon(default_icon())
         .menu(&menu)
         .show_menu_on_left_click(true)
         .tooltip("ant-companion")
@@ -129,15 +93,6 @@ pub fn update_tray<R: Runtime>(
     connection: &ConnectionStatus,
     figma: &FigmaStatus,
 ) {
-    let icon = match connection {
-        ConnectionStatus::Connected => match figma {
-            FigmaStatus::Available => icon_connected(),
-            _ => icon_warning(),
-        },
-        ConnectionStatus::Initial | ConnectionStatus::AuthRequired => icon_inactive(),
-        _ => icon_error(),
-    };
-    let _ = handle.tray.set_icon(Some(icon));
     let _ = handle.connection_item.set_text(connection_status_label(connection));
     let _ = handle.figma_item.set_text(figma_status_label(figma));
 }
