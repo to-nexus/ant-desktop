@@ -3,7 +3,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::error::AppError;
 use crate::state::{AppStateSnapshot, ConnectionStatus, SharedAppState};
-use crate::{auth, replace_token, save_server_url, spawn_bridge_task, SharedCancellationToken};
+use crate::{auth, replace_token, save_server_url, save_web_url, spawn_bridge_task, SharedCancellationToken};
 
 #[tauri::command]
 pub async fn get_app_state(state: tauri::State<'_, SharedAppState>) -> Result<AppStateSnapshot, AppError> {
@@ -17,6 +17,7 @@ pub async fn get_app_state(state: tauri::State<'_, SharedAppState>) -> Result<Ap
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionInfo {
     pub server_url: Option<String>,
+    pub web_url: Option<String>,
     pub has_jwt: bool,
     pub user_id: Option<String>,
 }
@@ -30,6 +31,7 @@ pub async fn get_connection_info(
         .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
     Ok(ConnectionInfo {
         server_url: guard.server_url.clone(),
+        web_url: guard.web_url.clone(),
         has_jwt: guard.jwt.is_some(),
         user_id: guard.user_id.clone(),
     })
@@ -93,6 +95,24 @@ pub async fn connect<R: Runtime>(
     }
 
     spawn_bridge_task(new_token, state.inner().clone(), app);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_web_url<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, SharedAppState>,
+    url: String,
+) -> Result<(), AppError> {
+    save_web_url(&app, &url);
+
+    {
+        let mut s = state
+            .lock()
+            .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
+        s.web_url = if url.is_empty() { None } else { Some(url) };
+    }
 
     Ok(())
 }

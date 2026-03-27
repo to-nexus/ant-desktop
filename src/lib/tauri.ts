@@ -4,6 +4,7 @@ export interface AppStateSnapshot {
   connectionStatus: string;
   figmaStatus: string;
   serverUrl: string | null;
+  webUrl: string | null;
   machineId: string;
   mcpRequestCount: number;
   lastHeartbeatAgoMs: number | null;
@@ -12,6 +13,7 @@ export interface AppStateSnapshot {
 
 export interface ConnectionInfo {
   serverUrl: string | null;
+  webUrl: string | null;
   hasJwt: boolean;
   userId: string | null;
 }
@@ -38,4 +40,8 @@ export async function connect(
 
 export async function setRealtimeBaseUrl(url: string): Promise<void> {
   return invoke("set_realtime_base_url", { url });
+}
+
+export async function setWebUrl(url: string): Promise<void> {
+  return invoke("set_web_url", { url });
 }

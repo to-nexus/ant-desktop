@@ -330,6 +330,17 @@ async fn handle_incoming_message<R: Runtime>(
                 }),
             );
         }
+        BridgeMessage::StatusProbe => {
+            info!("received status probe, sending immediate heartbeat");
+            let figma = crate::health::figma_check::check_figma_now().await;
+            let heartbeat = BridgeMessage::Heartbeat(HeartbeatMessage {
+                timestamp: now_ms(),
+                figma_desktop_reachable: Some(figma),
+            });
+            if let Err(e) = send_message(ws, &heartbeat).await {
+                error!("failed to send probe heartbeat: {e}");
+            }
+        }
         _ => {
             warn!("unexpected message type from server");
         }

@@ -64,6 +64,7 @@ pub fn run() {
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .manage(cancel_token)
         .invoke_handler(tauri::generate_handler![
@@ -71,6 +72,7 @@ pub fn run() {
             commands::disconnect,
             commands::connect,
             commands::set_realtime_base_url,
+            commands::set_web_url,
             commands::get_connection_info,
         ])
         .setup(|app| {
@@ -117,6 +119,13 @@ pub fn run() {
             }
 
             setup_deep_link(app);
+
+            // Load persisted web URL into state
+            if let Some(web_url) = load_web_url(app.handle()) {
+                if let Ok(mut s) = app.state::<SharedAppState>().lock() {
+                    s.web_url = Some(web_url);
+                }
+            }
 
             // Keychain + bridge init run off the main thread to avoid
             // blocking the macOS event loop (keychain access can stall).
@@ -290,5 +299,23 @@ pub fn load_server_url<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Option<S
     let store = app.store("config.json").ok()?;
     store
         .get("realtime_base_url")
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+}
+
+pub fn save_web_url<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &str) {
+    if let Ok(store) = app.store("config.json") {
+        if url.is_empty() {
+            store.delete("ant_web_url");
+        } else {
+            store.set("ant_web_url", serde_json::json!(url));
+        }
+        let _ = store.save();
+    }
+}
+
+pub fn load_web_url<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Option<String> {
+    let store = app.store("config.json").ok()?;
+    store
+        .get("ant_web_url")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
 }

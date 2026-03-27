@@ -16,6 +16,8 @@ function SettingsPage() {
   const [urlInput, setUrlInput] = useState("");
   const [localPort, setLocalPort] = useState(DEFAULT_LOCAL_PORT);
   const [saving, setSaving] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnected, setDisconnected] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -67,11 +69,17 @@ function SettingsPage() {
   const handleDisconnect = async () => {
     setErrorMsg(null);
     setSuccessMsg(null);
+    setDisconnecting(true);
+    setDisconnected(false);
     try {
       await disconnectCmd();
       await loadInfo();
+      setDisconnected(true);
+      setTimeout(() => setDisconnected(false), 2000);
     } catch (e) {
       setErrorMsg(`Failed to disconnect: ${e}`);
+    } finally {
+      setDisconnecting(false);
     }
   };
 
@@ -152,9 +160,18 @@ function SettingsPage() {
       <ConnectionCard title="Actions">
         <button
           onClick={handleDisconnect}
-          className="w-full py-1.5 text-sm bg-red-900 hover:bg-red-800 rounded text-red-200 transition-colors"
+          disabled={!info?.hasJwt || disconnecting}
+          className={`w-full py-1.5 text-sm rounded transition-colors ${
+            disconnected
+              ? "bg-green-900 text-green-300 cursor-default"
+              : "bg-red-900 hover:bg-red-800 disabled:bg-neutral-800 disabled:text-neutral-600 disabled:cursor-not-allowed text-red-200"
+          }`}
         >
-          Disconnect & Clear JWT
+          {disconnecting
+            ? "Disconnecting..."
+            : disconnected
+              ? "Disconnected"
+              : "Disconnect"}
         </button>
       </ConnectionCard>
     </div>

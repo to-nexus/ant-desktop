@@ -68,6 +68,12 @@ pub async fn check_loop<R: Runtime>(
     }
 }
 
+/// On-demand Figma reachability check (called by bridge.statusProbe handler).
+/// Returns true if Figma Desktop MCP endpoint is reachable.
+pub async fn check_figma_now() -> bool {
+    matches!(check_figma_once().await, FigmaStatus::Available)
+}
+
 async fn check_figma_once() -> FigmaStatus {
     let request = serde_json::json!({
         "jsonrpc": "2.0",

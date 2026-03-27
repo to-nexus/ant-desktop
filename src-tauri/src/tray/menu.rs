@@ -2,7 +2,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{TrayIcon, TrayIconBuilder},
-    AppHandle, Manager, Runtime,
+    AppHandle, Emitter, Manager, Runtime,
 };
 
 use crate::state::{ConnectionStatus, FigmaStatus};
@@ -73,6 +73,7 @@ pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<TrayHandle<R>
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
+                let _ = app.emit("navigate-tab", event.id.as_ref());
             }
             "quit" => {
                 app.exit(0);

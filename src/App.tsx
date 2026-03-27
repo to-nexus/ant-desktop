@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
 import StatusPage from "./pages/StatusPage";
 import SettingsPage from "./pages/SettingsPage";
 import LogsPage from "./pages/LogsPage";
@@ -7,6 +8,18 @@ type Tab = "status" | "settings" | "logs";
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>("status");
+
+  useEffect(() => {
+    const unlisten = listen<string>("navigate-tab", (event) => {
+      const tab = event.payload;
+      if (tab === "settings" || tab === "logs") {
+        setActiveTab(tab);
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "status", label: "Status" },

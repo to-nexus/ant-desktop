@@ -12,6 +12,9 @@ pub enum BridgeMessage {
     #[serde(rename = "bridge.disconnect")]
     Disconnect(DisconnectMessage),
 
+    #[serde(rename = "bridge.statusProbe")]
+    StatusProbe,
+
     #[serde(rename = "mcp.request")]
     McpRequest(McpRequestMessage),
 
