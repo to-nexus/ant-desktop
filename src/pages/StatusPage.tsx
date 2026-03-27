@@ -291,15 +291,17 @@ function StatusPage() {
   const handleFigmaOpen = useCallback(async () => {
     if (figmaOpening) return;
     setFigmaNotice(null);
+    setFigmaOpening(true);
+    clearTimeout(openTimeoutRef.current);
+    openTimeoutRef.current = setTimeout(() => {
+      setFigmaOpening(false);
+      showNotice("Figma not detected");
+    }, FIGMA_OPEN_TIMEOUT_MS);
     try {
       await openUrl(FIGMA_DEEPLINK_URL);
-      setFigmaOpening(true);
-      clearTimeout(openTimeoutRef.current);
-      openTimeoutRef.current = setTimeout(() => {
-        setFigmaOpening(false);
-        showNotice("Figma not detected");
-      }, FIGMA_OPEN_TIMEOUT_MS);
     } catch {
+      setFigmaOpening(false);
+      clearTimeout(openTimeoutRef.current);
       showNotice("Figma not detected");
     }
   }, [figmaOpening, showNotice]);
