@@ -1,6 +1,6 @@
-# Deployment Guide
+# Build & Release Guide
 
-How to build, sign, and distribute ant-desktop as a desktop application. Written for developers with no prior experience shipping Tauri / desktop apps.
+How to build, sign, and release ant-desktop. Covers local builds, code signing, CI/CD, and auto-update.
 
 ---
 
@@ -12,7 +12,7 @@ How to build, sign, and distribute ant-desktop as a desktop application. Written
 4. [Windows Code Signing](#4-windows-code-signing)
 5. [GitHub Actions CI/CD](#5-github-actions-cicd)
 6. [Auto-Update (tauri-plugin-updater)](#6-auto-update)
-7. [Release Checklist](#7-release-checklist)
+7. [Release Process](#7-release-process)
 
 ---
 
@@ -548,44 +548,67 @@ if (update) {
 
 ---
 
-## 7. Release Checklist
+## 7. Release Process
 
-Use this for every release:
+### 7.1 Version Bump
+
+Three files must have matching versions:
+
+```bash
+# Check current versions
+grep '"version"' package.json src-tauri/tauri.conf.json
+grep '^version' src-tauri/Cargo.toml
+```
+
+Update all three to the new version (e.g., `0.2.0`).
+
+### 7.2 Release via CI (Recommended)
+
+```bash
+git add -A && git commit -m "release: vX.Y.Z"
+git tag vX.Y.Z
+git push origin main --tags
+```
+
+GitHub Actions builds all platforms, creates a **draft** release with installers attached. Review the draft on GitHub and click "Publish".
+
+### 7.3 Release via Manual Build
+
+```bash
+pnpm install && pnpm tauri build
+```
+
+Upload artifacts from `src-tauri/target/release/bundle/` to a new GitHub Release manually.
+
+### 7.4 Post-Release Verification
 
 ```
 Pre-release:
-  [ ] Version bumped in all three files:
-      - package.json      ("version": "X.Y.Z")
-      - src-tauri/Cargo.toml  (version = "X.Y.Z")
-      - src-tauri/tauri.conf.json  ("version": "X.Y.Z")
-  [ ] All three versions match
-  [ ] CHANGELOG or release notes drafted
-  [ ] cargo test passes (cd src-tauri && cargo test)
+  [ ] Version bumped in package.json, Cargo.toml, tauri.conf.json (all match)
+  [ ] cargo test passes
   [ ] pnpm tauri build succeeds locally
 
-Signing (skip if not yet set up):
-  [ ] macOS: APPLE_SIGNING_IDENTITY configured
-  [ ] macOS: Notarization credentials configured
-  [ ] Windows: Certificate configured
-  [ ] Updater: TAURI_SIGNING_PRIVATE_KEY in CI secrets
-
 Release:
-  [ ] git tag vX.Y.Z && git push origin main --tags
-  [ ] CI workflow completes on all platforms
-  [ ] Draft release appears in GitHub Releases
-  [ ] Download and test each installer:
-      - macOS: .dmg opens, app installs, tray icon appears
-      - Windows: .msi or .exe installs, app runs
-      - Linux: .deb installs or .AppImage runs
-  [ ] Deep link works: ant-desktop://connect?token=...&server=...
-  [ ] WebSocket connects to Ant Cloud
-  [ ] Figma MCP proxy works (if Figma is running)
-  [ ] Publish the release (click "Publish" on GitHub)
+  [ ] git tag + push triggers CI (or manual upload)
+  [ ] Draft release has all platform artifacts
 
-Post-release:
-  [ ] Auto-update works from previous version
+Test:
+  [ ] macOS: .dmg install → tray icon appears
+  [ ] Windows: .msi/.exe install → app runs
+  [ ] Linux: .deb/.AppImage runs
+  [ ] Deep link: ant-desktop://connect?token=...&server=...
+  [ ] WebSocket connects to Ant Cloud
+  [ ] Figma MCP relay works (with Figma Desktop running)
+
+Post:
+  [ ] Publish release on GitHub
+  [ ] Auto-update works from previous version (if configured)
   [ ] Announce to team
 ```
+
+### 7.5 Unsigned Build Notes (Internal Testing)
+
+macOS users must bypass Gatekeeper for unsigned builds (see [Section 2](#2-distributing-without-code-signing)).
 
 ---
 
