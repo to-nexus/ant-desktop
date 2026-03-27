@@ -119,7 +119,7 @@ pub fn run() {
                 ));
             }
 
-            setup_deep_link(app);
+            let deep_link_handled = setup_deep_link(app);
 
             // Load persisted web URL into state
             if let Some(web_url) = load_web_url(app.handle()) {
@@ -130,7 +130,9 @@ pub fn run() {
 
             // Keychain + bridge init run off the main thread to avoid
             // blocking the macOS event loop (keychain access can stall).
-            {
+            // Skip if a deep link was already processed (avoids race condition
+            // where session restore cancels or duplicates the deep-link bridge).
+            if !deep_link_handled {
                 let app_handle = app.handle().clone();
                 let state = app.state::<SharedAppState>().inner().clone();
                 let shared_token = app.state::<SharedCancellationToken>().inner().clone();
@@ -161,7 +163,10 @@ pub fn run() {
         });
 }
 
-fn setup_deep_link(app: &tauri::App) {
+/// Register deep link handler and process any cold-start URL.
+/// Returns `true` if cold-start deep link URLs were found (will be processed
+/// off the main thread to avoid keychain blocking the macOS event loop).
+fn setup_deep_link(app: &tauri::App) -> bool {
     let handle = app.handle().clone();
 
     app.deep_link().on_open_url(move |event| {
@@ -173,12 +178,21 @@ fn setup_deep_link(app: &tauri::App) {
     });
 
     if let Ok(Some(urls)) = app.deep_link().get_current() {
-        let handle = app.handle().clone();
-        info!(count = urls.len(), "deep link get_current found initial URLs");
-        for url in urls {
-            process_deep_link_url(&handle, url.as_str());
+        if urls.is_empty() {
+            return false;
         }
+        info!(count = urls.len(), "deep link get_current found initial URLs");
+        let url_strings: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
+        let handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            for url_str in &url_strings {
+                process_deep_link_url(&handle, url_str);
+            }
+        });
+        return true;
     }
+
+    false
 }
 
 fn process_deep_link_url<R: Runtime>(handle: &tauri::AppHandle<R>, url_str: &str) {
