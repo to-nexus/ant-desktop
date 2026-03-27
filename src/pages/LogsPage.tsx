@@ -43,7 +43,13 @@ function LogsPage() {
       }),
       listen("auth-received", (event) => {
         const payload = event.payload as Record<string, unknown>;
-        addLog("auth", `Deep link: ${payload.server}`);
+        let host = "unknown";
+        try {
+          host = new URL(String(payload.server)).hostname;
+        } catch {
+          // invalid URL
+        }
+        addLog("auth", `Deep link received from ${host}`);
       }),
       listen("error", (event) => {
         const payload = event.payload as Record<string, unknown>;

@@ -31,11 +31,14 @@ pub fn parse_connect_url(url_str: &str) -> Result<DeepLinkParams, AuthError> {
         .map(|(_, v)| v.to_string())
         .ok_or_else(|| AuthError::InvalidDeepLink("missing 'token' parameter".into()))?;
 
-    let server = url
+    let server_raw = url
         .query_pairs()
         .find(|(k, _)| k == "server")
         .map(|(_, v)| v.to_string())
         .ok_or_else(|| AuthError::InvalidDeepLink("missing 'server' parameter".into()))?;
+
+    let server = crate::validation::validate_server_url(&server_raw)
+        .map_err(|e| AuthError::InvalidDeepLink(format!("invalid server URL: {e}")))?;
 
     Ok(DeepLinkParams { token, server })
 }

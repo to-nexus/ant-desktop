@@ -86,10 +86,15 @@ async fn check_figma_once() -> FigmaStatus {
         }
     });
 
-    match HEALTH_CLIENT.post(FIGMA_MCP_ENDPOINT)
+    match HEALTH_CLIENT
+        .post(FIGMA_MCP_ENDPOINT)
         .header("Accept", "application/json, text/event-stream")
-        .json(&request).send().await {
-        Ok(_) => FigmaStatus::Available,
+        .json(&request)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => FigmaStatus::Available,
+        Ok(_) => FigmaStatus::Unavailable,
         Err(_) => FigmaStatus::Unavailable,
     }
 }

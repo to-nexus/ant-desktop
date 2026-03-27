@@ -7,6 +7,7 @@ pub mod health;
 pub mod mcp;
 pub mod state;
 pub mod tray;
+pub mod validation;
 
 use state::{AppState, SharedAppState};
 use std::sync::{Arc, Mutex};
@@ -194,7 +195,7 @@ fn process_deep_link_url<R: Runtime>(handle: &tauri::AppHandle<R>, url_str: &str
     let user_id = auth::jwt::decode_user_id(&params.token).ok();
 
     if let Err(e) = auth::keychain::save_jwt(&params.token) {
-        tracing::error!("failed to save JWT: {e}");
+        tracing::warn!("JWT keychain save failed (proceeding in-memory): {e}");
     }
 
     let state = handle.state::<SharedAppState>();

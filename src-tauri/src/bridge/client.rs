@@ -16,16 +16,19 @@ use crate::constants::*;
 use crate::state::{ConnectionStatus, FigmaStatus, SharedAppState};
 
 fn build_ws_url(base_url: &str) -> Result<String, super::BridgeError> {
-    let ws_scheme = if base_url.starts_with("https") {
-        "wss"
-    } else {
-        "ws"
+    let parsed = url::Url::parse(base_url)
+        .map_err(|e| super::BridgeError::WebSocket(format!("invalid URL: {e}")))?;
+    let ws_scheme = match parsed.scheme() {
+        "https" => "wss",
+        "http" => "ws",
+        s => return Err(super::BridgeError::WebSocket(format!("unsupported scheme: {s}"))),
     };
-    let rest = base_url
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .trim_end_matches('/');
-    Ok(format!("{ws_scheme}://{rest}{BRIDGE_WS_PATH}"))
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| super::BridgeError::WebSocket("missing host".into()))?;
+    let port_part = parsed.port().map(|p| format!(":{p}")).unwrap_or_default();
+    let path = parsed.path().trim_end_matches('/');
+    Ok(format!("{ws_scheme}://{host}{port_part}{path}{BRIDGE_WS_PATH}"))
 }
 
 fn set_connection_status<R: Runtime>(
@@ -125,10 +128,22 @@ pub async fn run_loop<R: Runtime>(
         };
 
         if let Some(ref jwt) = jwt {
-            request.headers_mut().insert(
-                "Authorization",
-                format!("Bearer {jwt}").parse().unwrap(),
-            );
+            match format!("Bearer {jwt}").parse() {
+                Ok(val) => {
+                    request.headers_mut().insert("Authorization", val);
+                }
+                Err(e) => {
+                    error!("invalid JWT for Authorization header: {e}");
+                    set_connection_status(&app, &state, ConnectionStatus::AuthRequired);
+                    tokio::select! {
+                        _ = token.cancelled() => return,
+                        _ = tokio::time::sleep(retry_delay) => {
+                            retry_delay = next_delay(retry_delay);
+                            continue;
+                        }
+                    }
+                }
+            }
         }
 
         let ws_stream = tokio::select! {
@@ -263,6 +278,9 @@ async fn handle_session<R: Runtime>(
 
             msg = ws.next() => {
                 match msg {
+                    Some(Ok(Message::Text(ref text))) if text.len() > BRIDGE_WS_MAX_MESSAGE_BYTES => {
+                        warn!(size = text.len(), limit = BRIDGE_WS_MAX_MESSAGE_BYTES, "incoming message exceeds size limit, discarding");
+                    }
                     Some(Ok(Message::Text(text))) => {
                         handle_incoming_message(&text, &mut ws, state, app).await;
                     }

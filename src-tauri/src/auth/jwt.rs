@@ -2,6 +2,8 @@ use base64::Engine;
 
 use crate::auth::AuthError;
 
+const EXP_GRACE_PERIOD_SECS: u64 = 60;
+
 pub fn decode_user_id(jwt: &str) -> Result<String, AuthError> {
     let parts: Vec<&str> = jwt.split('.').collect();
     if parts.len() != 3 {
@@ -16,6 +18,16 @@ pub fn decode_user_id(jwt: &str) -> Result<String, AuthError> {
 
     let payload: serde_json::Value = serde_json::from_slice(&payload_bytes)
         .map_err(|e| AuthError::InvalidJwt(format!("JSON parse failed: {e}")))?;
+
+    if let Some(exp) = payload.get("exp").and_then(|v| v.as_u64()) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if now > exp + EXP_GRACE_PERIOD_SECS {
+            return Err(AuthError::InvalidJwt("token expired".into()));
+        }
+    }
 
     payload
         .get("sub")
@@ -52,5 +64,18 @@ mod tests {
     #[test]
     fn decode_invalid_format() {
         assert!(decode_user_id("not-a-jwt").is_err());
+    }
+
+    #[test]
+    fn decode_expired_jwt() {
+        let jwt = make_jwt(r#"{"sub":"user-1","exp":1000000}"#);
+        let err = decode_user_id(&jwt).unwrap_err();
+        assert!(err.to_string().contains("expired"));
+    }
+
+    #[test]
+    fn decode_no_exp_still_works() {
+        let jwt = make_jwt(r#"{"sub":"user-1"}"#);
+        assert_eq!(decode_user_id(&jwt).unwrap(), "user-1");
     }
 }

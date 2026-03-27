@@ -58,6 +58,20 @@ function Spinner() {
 const FIGMA_OPEN_TIMEOUT_MS = 12_000;
 const FIGMA_NOTICE_DURATION_MS = 5_000;
 
+const ALLOWED_URL_SCHEMES = ["https:", "http:", "figma:"];
+
+function safeOpenUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (!ALLOWED_URL_SCHEMES.some((s) => parsed.protocol === s)) {
+      return;
+    }
+    return openUrl(url);
+  } catch {
+    // invalid URL -- silently ignore
+  }
+}
+
 const badgeBase = "inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer";
 const badgeAction = `${badgeBase} bg-neutral-800 border-neutral-700 text-neutral-300 hover:bg-neutral-700 hover:text-neutral-100`;
 const badgeIconOnly = `${badgeBase} bg-neutral-800 border-neutral-700 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200`;
@@ -89,7 +103,7 @@ function resolveWebUrl(
     const u = new URL(serverUrl);
     return `${u.protocol}//${u.hostname}`;
   } catch {
-    return serverUrl;
+    return null;
   }
 }
 
@@ -160,25 +174,39 @@ function WebUrlSettings({
     initialMode === "custom" ? (webUrl ?? "") : "",
   );
   const [saving, setSaving] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
 
   const handleSave = useCallback(async () => {
+    setUrlError(null);
+    let url = "";
+    switch (mode) {
+      case "auto":
+        url = "";
+        break;
+      case "cloud":
+        url = "https://ant.crosstoken.io";
+        break;
+      case "local":
+        url = "http://localhost:4200";
+        break;
+      case "custom":
+        url = customUrl.trim();
+        break;
+    }
+    if (url) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+          setUrlError("Only http/https URLs are allowed");
+          return;
+        }
+      } catch {
+        setUrlError("Invalid URL format");
+        return;
+      }
+    }
     setSaving(true);
     try {
-      let url = "";
-      switch (mode) {
-        case "auto":
-          url = "";
-          break;
-        case "cloud":
-          url = "https://ant.crosstoken.io";
-          break;
-        case "local":
-          url = "http://localhost:4200";
-          break;
-        case "custom":
-          url = customUrl.trim();
-          break;
-      }
       await setWebUrl(url);
       onClose();
     } finally {
@@ -261,6 +289,10 @@ function WebUrlSettings({
         />
       )}
 
+      {urlError && (
+        <p className="text-[11px] text-red-400">{urlError}</p>
+      )}
+
       <div className="flex justify-end pt-1">
         <button
           onClick={handleSave}
@@ -298,7 +330,7 @@ function StatusPage() {
       showNotice("Figma not detected");
     }, FIGMA_OPEN_TIMEOUT_MS);
     try {
-      await openUrl(FIGMA_DEEPLINK_URL);
+      await safeOpenUrl(FIGMA_DEEPLINK_URL);
     } catch {
       setFigmaOpening(false);
       clearTimeout(openTimeoutRef.current);
@@ -353,7 +385,7 @@ function StatusPage() {
                   icon={<ExternalLinkIcon />}
                   label="Open"
                   title={webUrl}
-                  onClick={() => openUrl(webUrl)}
+                  onClick={() => safeOpenUrl(webUrl)}
                 />
               )}
               <ActionBadge
@@ -398,7 +430,7 @@ function StatusPage() {
                     icon={<DownloadIcon />}
                     label="Get"
                     title="Download Figma Desktop"
-                    onClick={() => openUrl(FIGMA_DOWNLOAD_URL)}
+                    onClick={() => safeOpenUrl(FIGMA_DOWNLOAD_URL)}
                   />
                 </>
               )

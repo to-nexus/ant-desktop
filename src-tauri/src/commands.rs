@@ -3,6 +3,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::error::AppError;
 use crate::state::{AppStateSnapshot, ConnectionStatus, SharedAppState};
+use crate::validation;
 use crate::{auth, replace_token, save_server_url, save_web_url, spawn_bridge_task, SharedCancellationToken};
 
 #[tauri::command]
@@ -45,7 +46,9 @@ pub async fn disconnect<R: Runtime>(
 ) -> Result<(), AppError> {
     let new_token = replace_token(shared_token.inner());
 
-    let _ = auth::keychain::delete_jwt();
+    if let Err(e) = auth::keychain::delete_jwt() {
+        tracing::warn!("JWT keychain delete failed: {e}");
+    }
 
     {
         let mut s = state
@@ -77,11 +80,16 @@ pub async fn connect<R: Runtime>(
     jwt: String,
     user_id: String,
 ) -> Result<(), AppError> {
+    let server_url = validation::validate_server_url(&server_url)
+        .map_err(|e| AppError::Internal(format!("invalid server URL: {e}")))?;
+
     let new_token = replace_token(shared_token.inner());
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let _ = auth::keychain::save_jwt(&jwt);
+    if let Err(e) = auth::keychain::save_jwt(&jwt) {
+        tracing::warn!("JWT keychain save failed (proceeding in-memory): {e}");
+    }
     save_server_url(&app, &server_url);
 
     {
@@ -105,6 +113,9 @@ pub async fn set_web_url<R: Runtime>(
     state: tauri::State<'_, SharedAppState>,
     url: String,
 ) -> Result<(), AppError> {
+    let url = validation::validate_web_url(&url)
+        .map_err(|e| AppError::Internal(format!("invalid web URL: {e}")))?;
+
     save_web_url(&app, &url);
 
     {
@@ -124,6 +135,9 @@ pub async fn set_realtime_base_url<R: Runtime>(
     shared_token: tauri::State<'_, SharedCancellationToken>,
     url: String,
 ) -> Result<(), AppError> {
+    let url = validation::validate_server_url(&url)
+        .map_err(|e| AppError::Internal(format!("invalid server URL: {e}")))?;
+
     save_server_url(&app, &url);
 
     {

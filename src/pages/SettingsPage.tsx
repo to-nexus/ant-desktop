@@ -50,12 +50,23 @@ function SettingsPage() {
   };
 
   const handleSave = async () => {
-    if (!urlInput.trim()) return;
+    const trimmed = urlInput.trim();
+    if (!trimmed) return;
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        setErrorMsg("Only http:// and https:// URLs are allowed");
+        return;
+      }
+    } catch {
+      setErrorMsg("Invalid URL format");
+      return;
+    }
     setSaving(true);
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      await setRealtimeBaseUrl(urlInput.trim());
+      await setRealtimeBaseUrl(trimmed);
       await loadInfo();
       setSuccessMsg("URL saved. Reconnecting...");
       setTimeout(() => setSuccessMsg(null), 3000);

@@ -180,10 +180,15 @@ pub async fn handle_request(req: &McpRequestMessage) -> McpResponseMessage {
                 error = %e,
                 "MCP proxy failed"
             );
+            let error_code = match &e {
+                McpError::FigmaNotRunning => "FIGMA_NOT_RUNNING",
+                McpError::ResponseTooLarge { .. } => "RESPONSE_TOO_LARGE",
+                _ => "MCP_REQUEST_FAILED",
+            };
             McpResponseMessage {
                 request_id: req.request_id.clone(),
                 result: None,
-                error: Some(e.to_string()),
+                error: Some(error_code.to_string()),
             }
         }
     }

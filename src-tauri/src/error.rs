@@ -23,6 +23,20 @@ impl Serialize for AppError {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        let msg = match self {
+            AppError::Bridge(_) => "connection error".to_string(),
+            AppError::Auth(e) => match e {
+                crate::auth::AuthError::InvalidJwt(_) => {
+                    "invalid authentication token".to_string()
+                }
+                crate::auth::AuthError::Keychain(_) => "keychain access failed".to_string(),
+                crate::auth::AuthError::NoToken => "no authentication token".to_string(),
+                _ => "authentication error".to_string(),
+            },
+            AppError::Mcp(_) => "MCP proxy error".to_string(),
+            AppError::Health(_) => "health check error".to_string(),
+            AppError::Internal(_) => "internal error".to_string(),
+        };
+        serializer.serialize_str(&msg)
     }
 }
