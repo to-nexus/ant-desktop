@@ -109,10 +109,30 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+  resolve-env:
+    name: Resolve environment
+    runs-on: [arc-runner-set]
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+    steps:
+      - name: Determine environment from tag
+        id: env
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == *"-alpha"* ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          elif [[ "$TAG" == *"-beta"* ]]; then
+            echo "environment=stage" >> $GITHUB_OUTPUT
+          else
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          fi
+          echo "Tag: $TAG → Environment: $(grep environment $GITHUB_OUTPUT | cut -d= -f2)"
+
   upload-cdn:
     name: Upload to CDN
-    needs: [release]
+    needs: [release, resolve-env]
     runs-on: [arc-runner-set]
+    environment: ${{ needs.resolve-env.outputs.environment }}
     permissions:
       id-token: write
       contents: write
