@@ -13,14 +13,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          - platform: [build-server]
             args: '--target aarch64-apple-darwin'
-          - platform: macos-latest
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - platform: [build-server]
             args: '--target x86_64-apple-darwin'
-          - platform: ubuntu-22.04
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - platform: ubuntu-24.04
             args: ''
+            rust_targets: ''
           - platform: windows-latest
             args: ''
+            rust_targets: ''
 
     runs-on: ${{ matrix.platform }}
 
@@ -41,10 +45,10 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.rust_targets }}
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: contains(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -60,14 +64,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS signing (optional — remove if not configured)
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows signing (optional — remove if not configured)
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
@@ -76,3 +78,76 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  upload-cdn:
+    name: Upload to CDN
+    needs: [release]
+    runs-on: [arc-runner-set]
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          mkdir -p artifacts
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --dir artifacts \
+            --pattern '*.dmg' \
+            --pattern '*.exe' \
+            --pattern '*.deb' \
+            --pattern '*.AppImage'
+
+      - name: Rename artifacts
+        run: |
+          mkdir -p renamed
+          for f in artifacts/*_aarch64.dmg; do [ -f "$f" ] && cp "$f" renamed/macos-arm64.dmg; done
+          for f in artifacts/*_x86_64.dmg; do [ -f "$f" ] && cp "$f" renamed/macos-x64.dmg; done
+          for f in artifacts/*_x64-setup.exe; do [ -f "$f" ] && cp "$f" renamed/windows-x64.exe; done
+          for f in artifacts/*_amd64.deb; do [ -f "$f" ] && cp "$f" renamed/linux-x64.deb; done
+          for f in artifacts/*_amd64.AppImage; do [ -f "$f" ] && cp "$f" renamed/linux-x64.AppImage; done
+          echo "### Renamed artifacts" >> $GITHUB_STEP_SUMMARY
+          ls -lh renamed/ >> $GITHUB_STEP_SUMMARY
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.CDN_ACCOUNT_ID }}:role/${{ vars.OIDC_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload to S3 (versioned)
+        run: |
+          TAG="${{ github.ref_name }}"
+          BUCKET="${{ vars.S3_BUCKET_NAME }}"
+          aws s3 sync renamed/ "s3://${BUCKET}/downloads/desktop/${TAG}/" \
+            --cache-control "public, max-age=31536000, immutable"
+
+      - name: Update latest
+        run: |
+          TAG="${{ github.ref_name }}"
+          BUCKET="${{ vars.S3_BUCKET_NAME }}"
+          aws s3 sync "s3://${BUCKET}/downloads/desktop/${TAG}/" "s3://${BUCKET}/downloads/desktop/latest/" \
+            --delete \
+            --cache-control "public, max-age=3600" \
+            --metadata-directive REPLACE
+
+      - name: Invalidate CloudFront cache
+        run: |
+          TAG="${{ github.ref_name }}"
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/downloads/desktop/${TAG}/*" "/downloads/desktop/latest/*"
+
+      - name: Upload summary
+        run: |
+          TAG="${{ github.ref_name }}"
+          BUCKET="${{ vars.S3_BUCKET_NAME }}"
+          echo "## CDN Upload Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Bucket**: ${BUCKET}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versioned path**: downloads/desktop/${TAG}/" >> $GITHUB_STEP_SUMMARY
+          echo "- **Latest path**: downloads/desktop/latest/" >> $GITHUB_STEP_SUMMARY
