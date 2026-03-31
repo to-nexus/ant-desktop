@@ -13,14 +13,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          - platform: [macOS]
             args: '--target aarch64-apple-darwin'
-          - platform: macos-latest
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - platform: [macOS]
             args: '--target x86_64-apple-darwin'
-          - platform: ubuntu-22.04
-            args: ''
-          - platform: windows-latest
-            args: ''
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          # - platform: ubuntu-24.04
+          #   args: ''
+          #   rust_targets: ''
+          # - platform: windows-latest
+          #   args: ''
+          #   rust_targets: ''
 
     runs-on: ${{ matrix.platform }}
 
@@ -41,10 +45,10 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.rust_targets }}
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: contains(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -56,19 +60,47 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
-      - name: Build and release
+      - name: Build Tauri app (macOS - .app only)
+        if: contains(toJson(matrix.platform), 'macOS')
+        run: pnpm tauri build ${{ matrix.args }} --bundles app
+
+      - name: Create DMG
+        if: contains(toJson(matrix.platform), 'macOS')
+        run: |
+          TARGET=$(echo "${{ matrix.args }}" | grep -o '[a-z0-9_]*-apple-darwin')
+          APP_PATH="src-tauri/target/${TARGET}/release/bundle/macos/ant-desktop.app"
+          VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*: "//;s/".*//')
+          ARCH=$(echo "${TARGET}" | sed 's/-apple-darwin//')
+          DMG_NAME="ant-desktop_${VERSION}_${ARCH}.dmg"
+          DMG_DIR="src-tauri/target/${TARGET}/release/bundle/dmg"
+          mkdir -p "${DMG_DIR}"
+          hdiutil create -volname "Ant Desktop" -srcfolder "${APP_PATH}" -ov -format UDZO "${DMG_DIR}/${DMG_NAME}"
+          echo "DMG_PATH=${DMG_DIR}/${DMG_NAME}" >> $GITHUB_ENV
+
+      - name: Upload DMG to release
+        if: contains(toJson(matrix.platform), 'macOS')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          REPO="${{ github.repository }}"
+          gh release create "$TAG" --repo "$REPO" --draft --title "Ant Desktop $TAG" --notes "See the assets below to download and install." 2>/dev/null || true
+          gh release upload "$TAG" "$DMG_PATH" --repo "$REPO" --clobber
+
+      - name: Build and release (Linux/Windows)
+        if: "!contains(toJson(matrix.platform), 'macOS')"
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS signing (optional — remove if not configured)
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows signing (optional — remove if not configured)
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          # macOS signing (서명 인증서 확보 후 주석 해제)
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows signing
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Ant Desktop ${{ github.ref_name }}'
@@ -76,3 +108,114 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  resolve-env:
+    name: Resolve environment
+    runs-on: [arc-runner-set]
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+    steps:
+      - name: Determine environment from tag
+        id: env
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == *"-alpha"* ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          elif [[ "$TAG" == *"-beta"* ]]; then
+            echo "environment=stage" >> $GITHUB_OUTPUT
+          else
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          fi
+          echo "Tag: $TAG → Environment: $(grep environment $GITHUB_OUTPUT | cut -d= -f2)"
+
+  upload-cdn:
+    name: Upload to CDN
+    needs: [release, resolve-env]
+    runs-on: [arc-runner-set]
+    environment: ${{ needs.resolve-env.outputs.environment }}
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - name: Install CLI tools
+        run: |
+          # gh CLI
+          if ! type gh >/dev/null 2>&1; then
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt-get update && sudo apt-get install -y gh
+          fi
+          # AWS CLI
+          if ! type aws >/dev/null 2>&1; then
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+            unzip -q /tmp/awscliv2.zip -d /tmp
+            sudo /tmp/aws/install
+            rm -rf /tmp/awscliv2.zip /tmp/aws
+          fi
+          gh --version
+          aws --version
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          mkdir -p artifacts
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --dir artifacts \
+            --pattern '*.dmg' \
+            --pattern '*.exe' \
+            --pattern '*.deb' \
+            --pattern '*.AppImage'
+
+      - name: Rename artifacts
+        run: |
+          mkdir -p renamed
+          for f in artifacts/*_aarch64.dmg; do [ -f "$f" ] && cp "$f" renamed/macos-arm64.dmg; done
+          for f in artifacts/*_x86_64.dmg; do [ -f "$f" ] && cp "$f" renamed/macos-x64.dmg; done
+          for f in artifacts/*_x64-setup.exe; do [ -f "$f" ] && cp "$f" renamed/windows-x64.exe; done
+          for f in artifacts/*_amd64.deb; do [ -f "$f" ] && cp "$f" renamed/linux-x64.deb; done
+          for f in artifacts/*_amd64.AppImage; do [ -f "$f" ] && cp "$f" renamed/linux-x64.AppImage; done
+          echo "### Renamed artifacts" >> $GITHUB_STEP_SUMMARY
+          ls -lh renamed/ >> $GITHUB_STEP_SUMMARY
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.CDN_ACCOUNT_ID }}:role/${{ vars.OIDC_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload to S3 (versioned)
+        run: |
+          TAG="${{ github.ref_name }}"
+          BUCKET="${{ vars.S3_BUCKET_NAME }}"
+          aws s3 sync renamed/ "s3://${BUCKET}/downloads/desktop/${TAG}/" \
+            --cache-control "public, max-age=31536000, immutable"
+
+      - name: Update latest
+        run: |
+          TAG="${{ github.ref_name }}"
+          BUCKET="${{ vars.S3_BUCKET_NAME }}"
+          aws s3 sync "s3://${BUCKET}/downloads/desktop/${TAG}/" "s3://${BUCKET}/downloads/desktop/latest/" \
+            --delete \
+            --cache-control "public, max-age=3600" \
+            --metadata-directive REPLACE
+
+      - name: Invalidate CloudFront cache
+        run: |
+          TAG="${{ github.ref_name }}"
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/downloads/desktop/${TAG}/*" "/downloads/desktop/latest/*"
+
+      - name: Upload summary
+        run: |
+          TAG="${{ github.ref_name }}"
+          BUCKET="${{ vars.S3_BUCKET_NAME }}"
+          echo "## CDN Upload Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Bucket**: ${BUCKET}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versioned path**: downloads/desktop/${TAG}/" >> $GITHUB_STEP_SUMMARY
+          echo "- **Latest path**: downloads/desktop/latest/" >> $GITHUB_STEP_SUMMARY
