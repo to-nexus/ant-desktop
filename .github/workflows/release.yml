@@ -83,8 +83,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
-          gh release create "$TAG" --draft --title "Ant Desktop $TAG" --notes "See the assets below to download and install." 2>/dev/null || true
-          gh release upload "$TAG" "$DMG_PATH" --clobber
+          REPO="${{ github.repository }}"
+          gh release create "$TAG" --repo "$REPO" --draft --title "Ant Desktop $TAG" --notes "See the assets below to download and install." 2>/dev/null || true
+          gh release upload "$TAG" "$DMG_PATH" --repo "$REPO" --clobber
 
       - name: Build and release (Linux/Windows)
         if: "!contains(toJson(matrix.platform), 'macOS')"
