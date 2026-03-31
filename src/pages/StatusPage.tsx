@@ -97,11 +97,11 @@ function resolveWebUrl(
   if (customWebUrl) return customWebUrl;
   if (!serverUrl) return null;
   if (serverUrl.includes("127.0.0.1") || serverUrl.includes("localhost")) {
-    return "http://localhost:4200";
+    return "http://localhost:4200/app";
   }
   try {
     const u = new URL(serverUrl);
-    return `${u.protocol}//${u.hostname}`;
+    return `${u.protocol}//${u.hostname}/app`;
   } catch {
     return null;
   }
@@ -112,8 +112,8 @@ function detectCurrentMode(
   serverUrl: string | null,
 ): WebUrlMode {
   if (!webUrl) return "auto";
-  if (webUrl === "https://ant.crosstoken.io") return "cloud";
-  if (webUrl === "http://localhost:4200") {
+  if (webUrl === "https://ant.crosstoken.io/app") return "cloud";
+  if (webUrl === "http://localhost:4200/app") {
     const isLocalServer =
       serverUrl?.includes("127.0.0.1") || serverUrl?.includes("localhost");
     if (isLocalServer) return "auto";
@@ -184,10 +184,10 @@ function WebUrlSettings({
         url = "";
         break;
       case "cloud":
-        url = "https://ant.crosstoken.io";
+        url = "https://ant.crosstoken.io/app";
         break;
       case "local":
-        url = "http://localhost:4200";
+        url = "http://localhost:4200/app";
         break;
       case "custom":
         url = customUrl.trim();
@@ -254,7 +254,7 @@ function WebUrlSettings({
           onChange={() => setMode("cloud")}
           className="accent-blue-500"
         />
-        <span>Cloud (ant.crosstoken.io)</span>
+        <span>Cloud (ant.crosstoken.io/app)</span>
       </label>
 
       <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
@@ -265,7 +265,7 @@ function WebUrlSettings({
           onChange={() => setMode("local")}
           className="accent-blue-500"
         />
-        <span>Local (localhost:4200)</span>
+        <span>Local (localhost:4200/app)</span>
       </label>
 
       <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
