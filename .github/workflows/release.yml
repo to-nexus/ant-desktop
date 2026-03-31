@@ -64,6 +64,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI: true
           # macOS signing (서명 인증서 확보 후 주석 해제)
           # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
