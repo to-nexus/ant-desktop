@@ -4,9 +4,9 @@ use futures_util::{SinkExt, StreamExt};
 use tauri::{AppHandle, Emitter, Runtime};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
-    connect_async,
+    connect_async_tls_with_config,
     tungstenite::{client::IntoClientRequest, Message},
-    MaybeTlsStream, WebSocketStream,
+    Connector, MaybeTlsStream, WebSocketStream,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -14,6 +14,23 @@ use tracing::{error, info, warn};
 use crate::bridge::protocol::*;
 use crate::constants::*;
 use crate::state::{ConnectionStatus, FigmaStatus, SharedAppState};
+
+/// Force HTTP/1.1 ALPN so CloudFront doesn't negotiate HTTP/2.
+/// WebSocket upgrade requires HTTP/1.1 — hop-by-hop headers
+/// (Connection, Upgrade) are invalid in HTTP/2.
+fn build_tls_connector() -> Option<Connector> {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let mut config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("TLS protocol versions")
+    .with_root_certificates(root_store)
+    .with_no_client_auth();
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Some(Connector::Rustls(std::sync::Arc::new(config)))
+}
 
 fn build_ws_url(base_url: &str) -> Result<String, super::BridgeError> {
     let parsed = url::Url::parse(base_url)
@@ -146,9 +163,11 @@ pub async fn run_loop<R: Runtime>(
             }
         }
 
+        let connector = build_tls_connector();
+
         let ws_stream = tokio::select! {
             _ = token.cancelled() => return,
-            result = connect_async(request) => match result {
+            result = connect_async_tls_with_config(request, None, false, connector) => match result {
                 Ok((stream, _)) => stream,
                 Err(e) => {
                     let err_str = e.to_string();
