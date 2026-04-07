@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use base64::Engine as _;
 use reqwest::Client;
 use serde_json::json;
 use tokio::sync::Mutex as TokioMutex;
@@ -11,6 +12,11 @@ use crate::constants::*;
 use crate::mcp::McpError;
 
 const MCP_ACCEPT: &str = "application/json, text/event-stream";
+const ASSET_PROXY_TOOL: &str = "_ant_asset_download";
+const FIGMA_LOCAL_ASSET_PREFIXES: &[&str] = &[
+    "http://127.0.0.1:3845/",
+    "http://localhost:3845/",
+];
 
 struct McpSession {
     initialized: bool,
@@ -160,6 +166,14 @@ async fn ensure_initialized(session: &mut McpSession) -> Result<(), McpError> {
 }
 
 pub async fn handle_request(req: &McpRequestMessage) -> McpResponseMessage {
+    if req.tool == ASSET_PROXY_TOOL {
+        info!(
+            request_id = %req.request_id,
+            "handling asset download proxy"
+        );
+        return handle_asset_download(req).await;
+    }
+
     let mut session = MCP_SESSION.lock().await;
 
     info!(
@@ -263,4 +277,113 @@ async fn proxy_to_figma(
         .get("result")
         .cloned()
         .unwrap_or(serde_json::Value::Null))
+}
+
+/// Proxy an asset download request from the cloud job worker.
+/// The worker cannot reach localhost:3845 directly, so Ant Desktop
+/// fetches the asset and returns it as base64.
+async fn handle_asset_download(req: &McpRequestMessage) -> McpResponseMessage {
+    let url = match req.args.get("url").and_then(|v| v.as_str()) {
+        Some(u) => u,
+        None => {
+            return McpResponseMessage {
+                request_id: req.request_id.clone(),
+                result: None,
+                error: Some("missing 'url' argument".to_string()),
+            };
+        }
+    };
+
+    let is_local = FIGMA_LOCAL_ASSET_PREFIXES
+        .iter()
+        .any(|prefix| url.starts_with(prefix));
+    if !is_local {
+        return McpResponseMessage {
+            request_id: req.request_id.clone(),
+            result: None,
+            error: Some(format!(
+                "rejected: URL must start with one of {:?}",
+                FIGMA_LOCAL_ASSET_PREFIXES
+            )),
+        };
+    }
+
+    info!(url = %url, "fetching asset from Figma MCP");
+
+    let response = match HTTP_CLIENT.get(url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            let code = if e.is_connect() {
+                "FIGMA_NOT_RUNNING"
+            } else {
+                "ASSET_DOWNLOAD_FAILED"
+            };
+            error!(url = %url, error = %e, "asset fetch failed");
+            return McpResponseMessage {
+                request_id: req.request_id.clone(),
+                result: None,
+                error: Some(code.to_string()),
+            };
+        }
+    };
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let _ = response.bytes().await;
+        return McpResponseMessage {
+            request_id: req.request_id.clone(),
+            result: None,
+            error: Some(format!("HTTP {status}")),
+        };
+    }
+
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    let body = match response.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            return McpResponseMessage {
+                request_id: req.request_id.clone(),
+                result: None,
+                error: Some(format!("failed to read body: {e}")),
+            };
+        }
+    };
+
+    if body.len() > BRIDGE_WS_MAX_MESSAGE_BYTES / 2 {
+        return McpResponseMessage {
+            request_id: req.request_id.clone(),
+            result: None,
+            error: Some(format!(
+                "asset too large: {} bytes (limit {} bytes)",
+                body.len(),
+                BRIDGE_WS_MAX_MESSAGE_BYTES / 2
+            )),
+        };
+    }
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&body);
+    info!(
+        url = %url,
+        size_bytes = body.len(),
+        content_type = %content_type,
+        "asset downloaded successfully"
+    );
+
+    McpResponseMessage {
+        request_id: req.request_id.clone(),
+        result: Some(json!({
+            "content": [{
+                "type": "text",
+                "text": b64
+            }],
+            "mimeType": content_type
+        })),
+        error: None,
+    }
 }

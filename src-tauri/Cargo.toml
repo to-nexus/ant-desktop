@@ -1,6 +1,6 @@
 [package]
 name = "ant-desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "Figma MCP bridge for Ant Cloud"
 authors = ["ant"]
 edition = "2021"
