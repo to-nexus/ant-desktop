@@ -9,7 +9,7 @@ pub mod state;
 pub mod tray;
 pub mod validation;
 
-use state::{AppState, SharedAppState};
+use state::{AppState, PendingConnect, SharedAppState};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Listener, Manager, Runtime};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -72,6 +72,8 @@ pub fn run() {
             commands::get_app_state,
             commands::disconnect,
             commands::connect,
+            commands::confirm_connect,
+            commands::cancel_connect,
             commands::set_realtime_base_url,
             commands::set_web_url,
             commands::get_connection_info,
@@ -208,35 +210,28 @@ fn process_deep_link_url<R: Runtime>(handle: &tauri::AppHandle<R>, url_str: &str
 
     let user_id = auth::jwt::decode_user_id(&params.token).ok();
 
-    if let Err(e) = auth::keychain::save_jwt(&params.token) {
-        tracing::warn!("JWT keychain save failed (proceeding in-memory): {e}");
-    }
-
+    // Do NOT auto-apply. The custom scheme can be triggered by any web page,
+    // so silently saving the token + switching servers would be a drive-by
+    // account/server swap. Park the request and ask the UI to confirm; the
+    // token is saved and the bridge is spawned only in `confirm_connect`.
     let state = handle.state::<SharedAppState>();
-    let shared_token = handle.state::<SharedCancellationToken>();
-
-    let new_token = replace_token(shared_token.inner());
-
     if let Ok(mut s) = state.lock() {
-        s.server_url = Some(params.server.clone());
-        s.jwt = Some(params.token);
-        s.user_id = user_id;
-        s.connection_status = state::ConnectionStatus::Initial;
+        s.pending_connect = Some(PendingConnect {
+            token: params.token.clone(),
+            server: params.server.clone(),
+            user_id,
+        });
     }
-
-    save_server_url(handle, &params.server);
-
-    spawn_bridge_task(new_token, state.inner().clone(), handle.clone());
-
-    let _ = handle.emit(
-        "auth-received",
-        serde_json::json!({ "server": params.server }),
-    );
 
     if let Some(window) = handle.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
     }
+
+    let _ = handle.emit(
+        "auth-connect-request",
+        serde_json::json!({ "server": params.server }),
+    );
 }
 
 /// Try to restore a previous session from keychain. Returns true if restored.

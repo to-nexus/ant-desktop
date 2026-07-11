@@ -21,6 +21,16 @@ pub enum FigmaStatus {
     Unknown,
 }
 
+/// A deep-link connect request awaiting explicit user confirmation. Parked
+/// here instead of being auto-applied so a web page cannot silently swap the
+/// app's server/account via the `ant-desktop://connect` scheme.
+#[derive(Debug, Clone)]
+pub struct PendingConnect {
+    pub token: String,
+    pub server: String,
+    pub user_id: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct AppState {
     pub connection_status: ConnectionStatus,
@@ -33,6 +43,7 @@ pub struct AppState {
     pub last_heartbeat: Option<Instant>,
     pub mcp_request_count: u64,
     pub last_mcp_request: Option<Instant>,
+    pub pending_connect: Option<PendingConnect>,
 }
 
 impl AppState {
@@ -48,6 +59,7 @@ impl AppState {
             last_heartbeat: None,
             mcp_request_count: 0,
             last_mcp_request: None,
+            pending_connect: None,
         }
     }
 }

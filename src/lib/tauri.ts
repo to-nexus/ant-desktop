@@ -38,6 +38,14 @@ export async function connect(
   return invoke("connect", { serverUrl, jwt, userId });
 }
 
+export async function confirmConnect(): Promise<void> {
+  return invoke("confirm_connect");
+}
+
+export async function cancelConnect(): Promise<void> {
+  return invoke("cancel_connect");
+}
+
 export async function setRealtimeBaseUrl(url: string): Promise<void> {
   return invoke("set_realtime_base_url", { url });
 }

@@ -107,6 +107,58 @@ pub async fn connect<R: Runtime>(
     Ok(())
 }
 
+/// Apply a deep-link connect that the user explicitly confirmed. Consumes the
+/// parked `pending_connect` and performs the same work as `connect` (save JWT,
+/// persist server, spawn bridge). No-op error if nothing is pending.
+#[tauri::command]
+pub async fn confirm_connect<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, SharedAppState>,
+    shared_token: tauri::State<'_, SharedCancellationToken>,
+) -> Result<(), AppError> {
+    let pending = {
+        let mut s = state
+            .lock()
+            .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
+        s.pending_connect.take()
+    };
+    let pending =
+        pending.ok_or_else(|| AppError::Internal("no pending connection to confirm".into()))?;
+
+    let new_token = replace_token(shared_token.inner());
+
+    if let Err(e) = auth::keychain::save_jwt(&pending.token) {
+        tracing::warn!("JWT keychain save failed (proceeding in-memory): {e}");
+    }
+    save_server_url(&app, &pending.server);
+
+    {
+        let mut s = state
+            .lock()
+            .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
+        s.server_url = Some(pending.server.clone());
+        s.jwt = Some(pending.token);
+        s.user_id = pending.user_id;
+        s.connection_status = ConnectionStatus::Initial;
+    }
+
+    spawn_bridge_task(new_token, state.inner().clone(), app.clone());
+
+    let _ = app.emit("auth-received", serde_json::json!({ "server": pending.server }));
+
+    Ok(())
+}
+
+/// Discard a parked deep-link connect request the user declined.
+#[tauri::command]
+pub async fn cancel_connect(state: tauri::State<'_, SharedAppState>) -> Result<(), AppError> {
+    let mut s = state
+        .lock()
+        .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
+    s.pending_connect = None;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn set_web_url<R: Runtime>(
     app: AppHandle<R>,
