@@ -49,12 +49,21 @@ src-tauri/tests/        Rust integration tests (bridge protocol + fixtures)
 
 ## Checks
 
+These four are exactly what CI runs
+([.github/workflows/ci.yml](.github/workflows/ci.yml)):
+
 ```bash
 pnpm build                                   # tsc + vite build
+cargo fmt     --manifest-path src-tauri/Cargo.toml --all --check
+cargo clippy  --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test    --manifest-path src-tauri/Cargo.toml
-cargo clippy  --manifest-path src-tauri/Cargo.toml -- -D warnings
-cargo fmt     --manifest-path src-tauri/Cargo.toml --check
 ```
+
+If a dependency's `postinstall` script needs to run, declare it in
+[`pnpm-workspace.yaml`](pnpm-workspace.yaml) under `allowBuilds` with an
+explicit `true` / `false`. pnpm 11 turns an undeclared or unresolved entry into
+a hard error, so leaving pnpm's generated placeholder in place breaks
+`pnpm install --frozen-lockfile` in CI.
 
 ## Conventions
 

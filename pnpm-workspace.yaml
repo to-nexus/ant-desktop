@@ -1,0 +1,16 @@
+# Native-binary build whitelist.
+#
+# pnpm 11 blocks dependency `postinstall` scripts by default and turns an
+# undeclared (or unresolved) entry into a hard `ERR_PNPM_IGNORED_BUILDS`, which
+# fails `pnpm install --frozen-lockfile` in CI. Every package that wants to run
+# a build script needs an explicit true/false here.
+#
+# This is the pnpm 11 SSOT. `.npmrc`'s `onlyBuiltDependencies` was the pnpm 10
+# location and is no longer read. The main repo keeps the same table in its own
+# pnpm-workspace.yaml.
+#
+# esbuild: false — build-time only (vite), and the platform binary ships via
+# esbuild's own optional dependencies, so skipping the postinstall check is
+# safe.
+allowBuilds:
+  esbuild: false

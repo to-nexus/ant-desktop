@@ -119,6 +119,21 @@ ant-desktop/
 - **Frontend:** React 18 + TypeScript + Tailwind CSS
 - **Build:** Vite + Cargo + Tauri Bundler
 
+## Contributing
+
+Like [Ant](https://github.com/to-nexus/ant) itself, this app is
+**solo-developed**, so reviews are best-effort — if a PR sits for a week,
+bump it. Issues and PRs are welcome, particularly platform coverage (the Linux
+and Windows build targets are currently disabled), Figma MCP tool support, and
+bug reports that include the Logs tab output.
+
+The scope is deliberately narrow: this relays Figma's MCP server to an Ant
+backend and does nothing else. Several behaviours around deep links, URL
+validation, and keychain storage are intentional — read
+[CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) before
+simplifying any of them.
+
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE). Contributions are accepted under the same
+license; there is no CLA to sign.

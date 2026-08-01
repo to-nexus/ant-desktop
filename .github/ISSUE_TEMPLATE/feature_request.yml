@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose a change to the Ant Desktop bridge
+title: "feat: <short summary>"
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ant Desktop is deliberately thin: it relays Figma Desktop's MCP server
+        to an Ant backend and does nothing else. Proposals that grow it into a
+        general-purpose client, add a server, or introduce new outbound hosts
+        are likely to be declined — but say so anyway if you think the scope is
+        wrong. Platform features belong in
+        [to-nexus/ant](https://github.com/to-nexus/ant/issues).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you hitting?
+      description: Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: security-surface
+    attributes:
+      label: Does this widen the security surface?
+      description: |
+        New outbound hosts, additional Tauri capabilities, new filesystem or
+        keychain access, or changes to deep-link handling all count. See
+        [SECURITY.md](../../blob/main/SECURITY.md).
+      multiple: false
+      options:
+        - "No"
+        - "Yes — described below"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ant platform issues
+    url: https://github.com/to-nexus/ant/issues
+    about: Bugs in jobs, agents, the web UI, or the backend belong in the main repo. This one is only the Figma MCP bridge.
+  - name: Discussion
+    url: https://github.com/to-nexus/ant/discussions
+    about: Open-ended questions and setup help. Discussions are shared with the main Ant repo.
+  - name: Security advisory
+    url: ../../security/advisories/new
+    about: Report a vulnerability privately. See SECURITY.md.
