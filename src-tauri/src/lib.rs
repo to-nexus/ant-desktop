@@ -43,11 +43,7 @@ pub fn spawn_bridge_task<R: Runtime>(
     state: SharedAppState,
     app: tauri::AppHandle<R>,
 ) {
-    tauri::async_runtime::spawn(bridge::client::run_loop(
-        token,
-        state,
-        app,
-    ));
+    tauri::async_runtime::spawn(bridge::client::run_loop(token, state, app));
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -98,13 +94,11 @@ pub fn run() {
             {
                 let handle = tray_handle;
                 let state = app.state::<SharedAppState>().inner().clone();
-                app.listen("figma-status-changed", move |_event| {
-                    match state.lock() {
-                        Ok(s) => tray::update_tray(&handle, &s.connection_status, &s.figma_status),
-                        Err(poisoned) => {
-                            let s = poisoned.into_inner();
-                            tray::update_tray(&handle, &s.connection_status, &s.figma_status);
-                        }
+                app.listen("figma-status-changed", move |_event| match state.lock() {
+                    Ok(s) => tray::update_tray(&handle, &s.connection_status, &s.figma_status),
+                    Err(poisoned) => {
+                        let s = poisoned.into_inner();
+                        tray::update_tray(&handle, &s.connection_status, &s.figma_status);
                     }
                 });
             }
@@ -183,7 +177,10 @@ fn setup_deep_link(app: &tauri::App) -> bool {
         if urls.is_empty() {
             return false;
         }
-        info!(count = urls.len(), "deep link get_current found initial URLs");
+        info!(
+            count = urls.len(),
+            "deep link get_current found initial URLs"
+        );
         let url_strings: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
         let handle = app.handle().clone();
         tauri::async_runtime::spawn(async move {
@@ -281,8 +278,13 @@ fn try_probe_connection_async<R: Runtime>(
     state: &SharedAppState,
     shared_token: &SharedCancellationToken,
 ) {
-    let server_url = load_server_url(app)
-        .unwrap_or_else(|| format!("{}:{}", constants::DEFAULT_LOCAL_HOST, constants::DEFAULT_LOCAL_PORT));
+    let server_url = load_server_url(app).unwrap_or_else(|| {
+        format!(
+            "{}:{}",
+            constants::DEFAULT_LOCAL_HOST,
+            constants::DEFAULT_LOCAL_PORT
+        )
+    });
 
     info!(server = %server_url, "starting probe connection (no JWT)");
 

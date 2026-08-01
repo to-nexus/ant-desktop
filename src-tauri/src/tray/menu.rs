@@ -39,10 +39,20 @@ fn figma_status_label(status: &FigmaStatus) -> &'static str {
 }
 
 pub fn build_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<TrayHandle<R>> {
-    let connection_item =
-        MenuItem::with_id(app, "conn_status", "Ant Cloud: Not Connected", false, None::<&str>)?;
-    let figma_item =
-        MenuItem::with_id(app, "figma_status", "Figma Desktop: Unknown", false, None::<&str>)?;
+    let connection_item = MenuItem::with_id(
+        app,
+        "conn_status",
+        "Ant Cloud: Not Connected",
+        false,
+        None::<&str>,
+    )?;
+    let figma_item = MenuItem::with_id(
+        app,
+        "figma_status",
+        "Figma Desktop: Unknown",
+        false,
+        None::<&str>,
+    )?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let settings_item = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
     let logs_item = MenuItem::with_id(app, "logs", "View Logs...", true, None::<&str>)?;
@@ -94,6 +104,8 @@ pub fn update_tray<R: Runtime>(
     connection: &ConnectionStatus,
     figma: &FigmaStatus,
 ) {
-    let _ = handle.connection_item.set_text(connection_status_label(connection));
+    let _ = handle
+        .connection_item
+        .set_text(connection_status_label(connection));
     let _ = handle.figma_item.set_text(figma_status_label(figma));
 }

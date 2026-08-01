@@ -13,7 +13,10 @@ fn round_trip(json: &serde_json::Value) -> serde_json::Value {
 }
 
 fn assert_json_eq(a: &serde_json::Value, b: &serde_json::Value, context: &str) {
-    assert_eq!(a, b, "JSON mismatch for {context}:\n  left:  {a}\n  right: {b}");
+    assert_eq!(
+        a, b,
+        "JSON mismatch for {context}:\n  left:  {a}\n  right: {b}"
+    );
 }
 
 #[test]

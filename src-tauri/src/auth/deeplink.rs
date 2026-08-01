@@ -59,10 +59,9 @@ mod tests {
 
     #[test]
     fn parse_local_server() {
-        let params = parse_connect_url(
-            "ant-desktop://connect?token=jwt&server=http://127.0.0.1:4101",
-        )
-        .unwrap();
+        let params =
+            parse_connect_url("ant-desktop://connect?token=jwt&server=http://127.0.0.1:4101")
+                .unwrap();
         assert_eq!(params.server, "http://127.0.0.1:4101");
     }
 

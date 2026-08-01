@@ -26,9 +26,7 @@ impl Serialize for AppError {
         let msg = match self {
             AppError::Bridge(_) => "connection error".to_string(),
             AppError::Auth(e) => match e {
-                crate::auth::AuthError::InvalidJwt(_) => {
-                    "invalid authentication token".to_string()
-                }
+                crate::auth::AuthError::InvalidJwt(_) => "invalid authentication token".to_string(),
                 crate::auth::AuthError::Keychain(_) => "keychain access failed".to_string(),
                 crate::auth::AuthError::NoToken => "no authentication token".to_string(),
                 _ => "authentication error".to_string(),

@@ -95,8 +95,12 @@ impl AppStateSnapshot {
             web_url: state.web_url.clone(),
             machine_id: state.machine_id.clone(),
             mcp_request_count: state.mcp_request_count,
-            last_heartbeat_ago_ms: state.last_heartbeat.map(|t| now.duration_since(t).as_millis() as u64),
-            last_mcp_request_ago_ms: state.last_mcp_request.map(|t| now.duration_since(t).as_millis() as u64),
+            last_heartbeat_ago_ms: state
+                .last_heartbeat
+                .map(|t| now.duration_since(t).as_millis() as u64),
+            last_mcp_request_ago_ms: state
+                .last_mcp_request
+                .map(|t| now.duration_since(t).as_millis() as u64),
         }
     }
 }

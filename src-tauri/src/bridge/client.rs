@@ -38,14 +38,20 @@ fn build_ws_url(base_url: &str) -> Result<String, super::BridgeError> {
     let ws_scheme = match parsed.scheme() {
         "https" => "wss",
         "http" => "ws",
-        s => return Err(super::BridgeError::WebSocket(format!("unsupported scheme: {s}"))),
+        s => {
+            return Err(super::BridgeError::WebSocket(format!(
+                "unsupported scheme: {s}"
+            )))
+        }
     };
     let host = parsed
         .host_str()
         .ok_or_else(|| super::BridgeError::WebSocket("missing host".into()))?;
     let port_part = parsed.port().map(|p| format!(":{p}")).unwrap_or_default();
     let path = parsed.path().trim_end_matches('/');
-    Ok(format!("{ws_scheme}://{host}{port_part}{path}{BRIDGE_WS_PATH}"))
+    Ok(format!(
+        "{ws_scheme}://{host}{port_part}{path}{BRIDGE_WS_PATH}"
+    ))
 }
 
 fn set_connection_status<R: Runtime>(
@@ -222,7 +228,10 @@ pub async fn run_loop<R: Runtime>(
         }
 
         set_connection_status(&app, &state, ConnectionStatus::Reconnecting);
-        info!(delay_ms = retry_delay.as_millis(), "reconnecting after delay");
+        info!(
+            delay_ms = retry_delay.as_millis(),
+            "reconnecting after delay"
+        );
 
         tokio::select! {
             _ = token.cancelled() => return,

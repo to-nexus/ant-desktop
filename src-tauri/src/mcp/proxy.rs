@@ -13,10 +13,7 @@ use crate::mcp::McpError;
 
 const MCP_ACCEPT: &str = "application/json, text/event-stream";
 const ASSET_PROXY_TOOL: &str = "_ant_asset_download";
-const FIGMA_LOCAL_ASSET_PREFIXES: &[&str] = &[
-    "http://127.0.0.1:3845/",
-    "http://localhost:3845/",
-];
+const FIGMA_LOCAL_ASSET_PREFIXES: &[&str] = &["http://127.0.0.1:3845/", "http://localhost:3845/"];
 
 struct McpSession {
     initialized: bool,
@@ -45,11 +42,14 @@ fn parse_response_body(body: &[u8], is_sse: bool) -> Result<serde_json::Value, M
             .map_err(|e| McpError::RequestFailed(format!("invalid UTF-8: {e}")))?;
         for line in text.lines() {
             if let Some(data) = line.strip_prefix("data: ") {
-                return serde_json::from_str(data)
-                    .map_err(|e| McpError::RequestFailed(format!("invalid JSON in SSE data: {e}")));
+                return serde_json::from_str(data).map_err(|e| {
+                    McpError::RequestFailed(format!("invalid JSON in SSE data: {e}"))
+                });
             }
         }
-        Err(McpError::RequestFailed("no data line in SSE response".into()))
+        Err(McpError::RequestFailed(
+            "no data line in SSE response".into(),
+        ))
     } else {
         serde_json::from_slice(body)
             .map_err(|e| McpError::RequestFailed(format!("invalid JSON response: {e}")))
@@ -134,7 +134,9 @@ async fn ensure_initialized(session: &mut McpSession) -> Result<(), McpError> {
             .get("message")
             .and_then(|m| m.as_str())
             .unwrap_or("unknown initialize error");
-        return Err(McpError::RequestFailed(format!("initialize rejected: {msg}")));
+        return Err(McpError::RequestFailed(format!(
+            "initialize rejected: {msg}"
+        )));
     }
 
     if let Some(ref id) = sid {
@@ -155,7 +157,9 @@ async fn ensure_initialized(session: &mut McpSession) -> Result<(), McpError> {
     }
 
     match notif_req.send().await {
-        Ok(resp) => { let _ = resp.bytes().await; }
+        Ok(resp) => {
+            let _ = resp.bytes().await;
+        }
         Err(e) => warn!("notifications/initialized failed (non-fatal): {e}"),
     }
 

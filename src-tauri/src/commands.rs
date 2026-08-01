@@ -4,10 +4,14 @@ use tauri::{AppHandle, Emitter, Runtime};
 use crate::error::AppError;
 use crate::state::{AppStateSnapshot, ConnectionStatus, SharedAppState};
 use crate::validation;
-use crate::{auth, replace_token, save_server_url, save_web_url, spawn_bridge_task, SharedCancellationToken};
+use crate::{
+    auth, replace_token, save_server_url, save_web_url, spawn_bridge_task, SharedCancellationToken,
+};
 
 #[tauri::command]
-pub async fn get_app_state(state: tauri::State<'_, SharedAppState>) -> Result<AppStateSnapshot, AppError> {
+pub async fn get_app_state(
+    state: tauri::State<'_, SharedAppState>,
+) -> Result<AppStateSnapshot, AppError> {
     let guard = state
         .lock()
         .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
@@ -59,10 +63,7 @@ pub async fn disconnect<R: Runtime>(
         s.user_id = None;
     }
 
-    let _ = app.emit(
-        "connection-status-changed",
-        ConnectionStatus::AuthRequired,
-    );
+    let _ = app.emit("connection-status-changed", ConnectionStatus::AuthRequired);
 
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
@@ -144,7 +145,10 @@ pub async fn confirm_connect<R: Runtime>(
 
     spawn_bridge_task(new_token, state.inner().clone(), app.clone());
 
-    let _ = app.emit("auth-received", serde_json::json!({ "server": pending.server }));
+    let _ = app.emit(
+        "auth-received",
+        serde_json::json!({ "server": pending.server }),
+    );
 
     Ok(())
 }
