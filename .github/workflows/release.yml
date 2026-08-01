@@ -1,5 +1,23 @@
 name: Release
 
+# SELF-HOSTED RUNNERS ON A PUBLIC REPO — read before editing.
+#
+# `[macOS]` and `[arc-runner-set]` are self-hosted labels. GitHub's guidance is
+# not to expose self-hosted runners to a public repository, because any
+# workflow that executes contributor-authored code turns into arbitrary code
+# execution on the runner host.
+#
+# Two properties keep that safe today, and BOTH must hold:
+#   1. The only trigger is `push: tags: v*`. Creating a tag requires write
+#      access, so a fork/PR author cannot reach these runners.
+#   2. Every job carries `if: github.repository == 'to-nexus/ant-desktop'`, so
+#      a fork that copies this file cannot schedule work here either.
+#
+# Do NOT add `pull_request`, `pull_request_target`, `issue_comment`, or
+# `workflow_dispatch`-from-fork triggers while these jobs stay self-hosted.
+# Migrating the build to GitHub-hosted `macos-latest` and the CDN upload to
+# `ubuntu-latest` (OIDC works there unchanged) removes the constraint.
+
 on:
   push:
     tags:
@@ -7,6 +25,7 @@ on:
 
 jobs:
   release:
+    if: github.repository == 'to-nexus/ant-desktop'
     permissions:
       contents: write
     strategy:
@@ -111,7 +130,10 @@ jobs:
 
   resolve-env:
     name: Resolve environment
-    runs-on: [arc-runner-set]
+    # Pure tag-string parsing with no repo checkout and no secrets — kept on a
+    # GitHub-hosted runner so it needs none of the self-hosted surface above.
+    if: github.repository == 'to-nexus/ant-desktop'
+    runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env.outputs.environment }}
     steps:
@@ -131,6 +153,12 @@ jobs:
   upload-cdn:
     name: Upload to CDN
     needs: [release, resolve-env]
+    if: github.repository == 'to-nexus/ant-desktop'
+    # TODO(security): move to `ubuntu-latest`. AWS auth here is OIDC
+    # (`configure-aws-credentials` + `role-to-assume`), whose trust policy is
+    # keyed on the repo/ref claim rather than the runner, so a GitHub-hosted
+    # runner should work unchanged — verify the IAM trust policy first, since a
+    # mismatch fails the release rather than degrading it.
     runs-on: [arc-runner-set]
     environment: ${{ needs.resolve-env.outputs.environment }}
     permissions:

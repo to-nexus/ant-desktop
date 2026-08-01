@@ -2,6 +2,14 @@ use url::Url;
 
 /// Validate a server/realtime base URL.
 /// Ensures the URL has a supported scheme (http/https) and a valid host.
+///
+/// `http://` is accepted for **any** host, not just loopback — self-hosted
+/// setups routinely run `ant-realtime` over plain HTTP on a LAN address. A
+/// confirmed deep link can therefore point the bridge at a plaintext remote
+/// server; the user-facing confirmation dialog (which shows the target) is
+/// what makes that a deliberate choice rather than a drive-by. Tightening this
+/// to "https, or http only on loopback" would need that dialog to stay the
+/// gate for the LAN case.
 pub fn validate_server_url(raw: &str) -> Result<String, String> {
     let parsed = Url::parse(raw).map_err(|e| format!("invalid URL: {e}"))?;
     match parsed.scheme() {

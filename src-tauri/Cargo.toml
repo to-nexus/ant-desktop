@@ -1,8 +1,10 @@
 [package]
 name = "ant-desktop"
 version = "0.1.3"
-description = "Figma MCP bridge for Ant Cloud"
-authors = ["ant"]
+description = "Figma MCP bridge for Ant — managed cloud or self-hosted"
+authors = ["The Ant Authors"]
+license = "Apache-2.0"
+repository = "https://github.com/to-nexus/ant-desktop"
 edition = "2021"
 
 [lib]

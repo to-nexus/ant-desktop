@@ -1,0 +1,18 @@
+# Code owners — auto-requested as reviewers on matching paths.
+# Last match wins, so the security-sensitive entries sit at the bottom.
+#
+# Replace @to-nexus/maintainers with a real team (or individual @handles)
+# before enabling required reviews in branch protection.
+
+*                                       @to-nexus/maintainers
+
+# Release / supply chain
+/.github/workflows/                     @to-nexus/maintainers
+/src-tauri/Cargo.lock                   @to-nexus/maintainers
+
+# Security posture — see SECURITY.md for why these are deliberate
+/SECURITY.md                            @to-nexus/maintainers
+/src-tauri/tauri.conf.json              @to-nexus/maintainers
+/src-tauri/capabilities/                @to-nexus/maintainers
+/src-tauri/src/auth/                    @to-nexus/maintainers
+/src-tauri/src/validation.rs            @to-nexus/maintainers

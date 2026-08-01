@@ -4,6 +4,16 @@ use crate::auth::AuthError;
 
 const EXP_GRACE_PERIOD_SECS: u64 = 60;
 
+/// Read the `sub` claim out of a JWT payload, for **display and local
+/// bookkeeping only**.
+///
+/// The signature is deliberately NOT verified — the Ant backend is the
+/// verifying party, and this app has no key to check against. The `exp` check
+/// below is an early-out for an obviously stale token, not a security control.
+///
+/// Consequence: the returned id is attacker-controlled if the token itself is.
+/// Never use it to authorize an action, unlock state, or decide trust. It may
+/// be shown in the UI and used to key local storage, nothing more.
 pub fn decode_user_id(jwt: &str) -> Result<String, AuthError> {
     let parts: Vec<&str> = jwt.split('.').collect();
     if parts.len() != 3 {
