@@ -12,6 +12,18 @@ updates:
         update-types:
           - minor
           - patch
+    # React majors land with codemods and runtime behaviour changes, so they
+    # are planned by hand rather than proposed weekly. Glob "react*" would
+    # miss the @types/* packages, hence the explicit list.
+    ignore:
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
 
