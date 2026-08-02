@@ -311,8 +311,8 @@ function StatusPage() {
   const [showWebUrlSettings, setShowWebUrlSettings] = useState(false);
   const [figmaOpening, setFigmaOpening] = useState(false);
   const [figmaNotice, setFigmaNotice] = useState<string | null>(null);
-  const openTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const showNotice = useCallback((msg: string) => {
     setFigmaNotice(msg);
