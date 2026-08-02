@@ -2,10 +2,11 @@ name: Release
 
 # SELF-HOSTED RUNNERS ON A PUBLIC REPO — read before editing.
 #
-# `[macOS]` and `[arc-runner-set]` are self-hosted labels. GitHub's guidance is
-# not to expose self-hosted runners to a public repository, because any
-# workflow that executes contributor-authored code turns into arbitrary code
-# execution on the runner host.
+# `[macOS]` is a self-hosted label — the last one here, now that the CDN upload
+# has moved to `ubuntu-latest`. GitHub's guidance is not to expose self-hosted
+# runners to a public repository, because any workflow that executes
+# contributor-authored code turns into arbitrary code execution on the runner
+# host.
 #
 # Two properties keep that safe today, and BOTH must hold:
 #   1. The only trigger is `push: tags: v*`. Creating a tag requires write
@@ -14,9 +15,8 @@ name: Release
 #      a fork that copies this file cannot schedule work here either.
 #
 # Do NOT add `pull_request`, `pull_request_target`, `issue_comment`, or
-# `workflow_dispatch`-from-fork triggers while these jobs stay self-hosted.
-# Migrating the build to GitHub-hosted `macos-latest` and the CDN upload to
-# `ubuntu-latest` (OIDC works there unchanged) removes the constraint.
+# `workflow_dispatch`-from-fork triggers while the build stays self-hosted.
+# Migrating it to GitHub-hosted `macos-latest` removes the constraint entirely.
 
 on:
   push:
@@ -159,12 +159,14 @@ jobs:
     name: Upload to CDN
     needs: [release, resolve-env]
     if: github.repository == 'to-nexus/ant-desktop'
-    # TODO(security): move to `ubuntu-latest`. AWS auth here is OIDC
-    # (`configure-aws-credentials` + `role-to-assume`), whose trust policy is
-    # keyed on the repo/ref claim rather than the runner, so a GitHub-hosted
-    # runner should work unchanged — verify the IAM trust policy first, since a
-    # mismatch fails the release rather than degrading it.
-    runs-on: [arc-runner-set]
+    # Moved off `[arc-runner-set]`: that runner set no longer exists, so this job
+    # sat queued until the 24h timeout cancelled the whole run (v0.1.3, v0.1.4).
+    # AWS auth is OIDC (`configure-aws-credentials` + `role-to-assume`), whose
+    # trust policy keys on the repo/ref claim rather than the runner, so the
+    # hosted runner should assume the same role unchanged. Not yet exercised —
+    # if the IAM trust policy turns out to be narrower, this job fails AFTER the
+    # GitHub release already carries its assets, so a release still ships.
+    runs-on: ubuntu-latest
     environment: ${{ needs.resolve-env.outputs.environment }}
     permissions:
       id-token: write
