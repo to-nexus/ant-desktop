@@ -1,6 +1,13 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* v4 is CSS-first: theme extensions live here, not in a JS config. The
+   `--color-*` namespace is what backs `bg-status-*` / `text-status-*`. */
+@theme {
+  --color-status-connected: #22c55e;
+  --color-status-warning: #f59e0b;
+  --color-status-error: #ef4444;
+  --color-status-inactive: #9ca3af;
+}
 
 body {
   margin: 0;

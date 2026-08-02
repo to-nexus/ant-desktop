@@ -285,7 +285,7 @@ function WebUrlSettings({
           value={customUrl}
           onChange={(e) => setCustomUrl(e.target.value)}
           placeholder="https://..."
-          className="w-full bg-neutral-900 border border-neutral-600 rounded px-2 py-1 text-xs text-neutral-200 focus:outline-none focus:border-blue-500"
+          className="w-full bg-neutral-900 border border-neutral-600 rounded px-2 py-1 text-xs text-neutral-200 focus:outline-hidden focus:border-blue-500"
         />
       )}
 

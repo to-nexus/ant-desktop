@@ -107,7 +107,7 @@ function SettingsPage() {
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               placeholder="https://ant.crosstoken.io"
-              className="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-1.5 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-blue-500"
+              className="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-1.5 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-hidden focus:border-blue-500"
             />
           </div>
 
@@ -128,7 +128,7 @@ function SettingsPage() {
               type="number"
               value={localPort}
               onChange={(e) => setLocalPort(e.target.value)}
-              className="w-20 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-300 focus:outline-none focus:border-blue-500"
+              className="w-20 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-300 focus:outline-hidden focus:border-blue-500"
               min="1"
               max="65535"
             />
