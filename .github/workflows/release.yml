@@ -50,15 +50,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # No `version:` input — package.json's `packageManager` is the SSOT and
+      # action-setup@v6 hard-errors when both are given. Node must satisfy
+      # `engines.node`; keep it aligned with ci.yml.
       - name: Install pnpm
         uses: pnpm/action-setup@v6
-        with:
-          version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install Rust stable
@@ -103,7 +104,11 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           REPO="${{ github.repository }}"
-          gh release create "$TAG" --repo "$REPO" --draft --title "Ant Desktop $TAG" --notes "See the assets below to download and install." 2>/dev/null || true
+          # Both matrix legs reach this step. `gh release create` does NOT dedupe
+          # drafts by tag, so an unguarded call leaves one draft per leg — the
+          # second one empty, and publishing it ships a release with no assets.
+          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$REPO" --draft --title "Ant Desktop $TAG" --notes "See the assets below to download and install."
           gh release upload "$TAG" "$DMG_PATH" --repo "$REPO" --clobber
 
       - name: Build and release (Linux/Windows)
