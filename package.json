@@ -18,6 +18,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "check:tauri-parity": "node scripts/check-tauri-parity.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

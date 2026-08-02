@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   web:
-    name: Web (tsc + vite)
+    name: Web (tsc + vite + tauri parity)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -34,6 +34,12 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # `tauri build` rejects an @tauri-apps/* npm package whose major.minor
+      # disagrees with its Rust crate — but no CI job runs `tauri build`, so a
+      # lockfile-only npm bump used to stay green here and fail at tag time.
+      - run: pnpm check:tauri-parity
+
       - run: pnpm build
 
   rust:

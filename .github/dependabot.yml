@@ -1,5 +1,22 @@
 version: 2
 
+# MAJORS ARE NOT DELEGATED TO DEPENDABOT — read before removing an `ignore`.
+#
+# Dependabot edits manifests and lockfiles; it cannot edit source. A major
+# release almost always needs source work too, so the PR it opens is either
+# red on arrival or needs a human migration anyway. Tailwind v4 was the
+# worked example: the bump alone died on the PostCSS plugin split, and the
+# real change also had to rewrite the CSS entrypoint, delete the JS config,
+# and rename `outline-none`.
+#
+# So majors are planned by hand and minor/patch stay automated. Note the 0.x
+# case: Dependabot classifies `0.26 -> 0.30` as semver-major, so cargo crates
+# still on 0.x are covered by the same rule.
+#
+# Caveat: `ignore` can also suppress the auto-PR for a Dependabot SECURITY
+# update. Dependabot ALERTS still fire either way, so a real advisory stays
+# visible — it just has to be actioned by hand.
+
 updates:
   - package-ecosystem: npm
     directory: /
@@ -12,17 +29,8 @@ updates:
         update-types:
           - minor
           - patch
-    # React majors land with codemods and runtime behaviour changes, so they
-    # are planned by hand rather than proposed weekly. Glob "react*" would
-    # miss the @types/* packages, hence the explicit list.
     ignore:
-      - dependency-name: react
-        update-types: ["version-update:semver-major"]
-      - dependency-name: react-dom
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@types/react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@types/react-dom"
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
@@ -38,6 +46,9 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
 
