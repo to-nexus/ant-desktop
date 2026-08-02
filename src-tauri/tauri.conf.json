@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegist/nicegist-tools/main/schema.json",
   "productName": "ant-desktop",
-  "version": "0.1.4",
+  "version": "1.0.0",
   "identifier": "com.ant.desktop",
   "build": {
     "frontendDist": "../dist",
