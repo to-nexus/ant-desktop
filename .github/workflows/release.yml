@@ -54,7 +54,7 @@ jobs:
       # action-setup@v6 hard-errors when both are given. Node must satisfy
       # `engines.node`; keep it aligned with ci.yml.
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@v6.0.9
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
