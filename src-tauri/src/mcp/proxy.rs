@@ -90,7 +90,7 @@ async fn ensure_initialized(session: &mut McpSession) -> Result<(), McpError> {
         "params": {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": { "name": "ant-desktop", "version": "0.1.0" }
+            "clientInfo": { "name": "ant-desktop", "version": env!("CARGO_PKG_VERSION") }
         }
     });
 

@@ -1,6 +1,6 @@
 [package]
 name = "ant-desktop"
-version = "1.0.0"
+version = "1.0.1"
 description = "Figma MCP bridge for Ant — managed cloud or self-hosted"
 authors = ["The Ant Authors"]
 license = "Apache-2.0"
