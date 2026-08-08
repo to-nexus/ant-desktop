@@ -26,6 +26,10 @@ on:
 jobs:
   release:
     if: github.repository == 'to-nexus/ant-desktop'
+    # `resolve-env` is the only place that reads meaning out of the tag string.
+    # It is a checkout-free string parse, so waiting on it costs seconds and
+    # keeps the channel decision from being duplicated here.
+    needs: resolve-env
     permissions:
       contents: write
     strategy:
@@ -104,6 +108,11 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           REPO="${{ github.repository }}"
+          # Created as a draft on purpose, but NOT as a human approval gate — the
+          # `publish` job flips it as soon as every leg has uploaded. Publishing
+          # from inside the matrix would expose a release carrying only the arch
+          # that happened to finish first.
+          #
           # Both matrix legs reach this step. `gh release create` does NOT dedupe
           # drafts by tag, so an unguarded call leaves one draft per leg — the
           # second one empty, and publishing it ships a release with no assets.
@@ -129,31 +138,71 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Ant Desktop ${{ github.ref_name }}'
           releaseBody: 'See the assets below to download and install.'
+          # Staged, then flipped by `publish` — same reasoning as the macOS path.
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ needs.resolve-env.outputs.prerelease }}
           args: ${{ matrix.args }}
 
   resolve-env:
     name: Resolve environment
+    # THE tag-meaning SSOT. The tag suffix is the release-channel axis, and it is
+    # read here once: `environment` picks the CDN target, `prerelease` marks the
+    # GitHub release. Re-parsing the tag in another job is how those two drift.
+    #
     # Pure tag-string parsing with no repo checkout and no secrets — kept on a
     # GitHub-hosted runner so it needs none of the self-hosted surface above.
     if: github.repository == 'to-nexus/ant-desktop'
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env.outputs.environment }}
+      prerelease: ${{ steps.env.outputs.prerelease }}
     steps:
       - name: Determine environment from tag
         id: env
         run: |
           TAG="${{ github.ref_name }}"
-          if [[ "$TAG" == *"-alpha"* ]]; then
-            echo "environment=dev" >> $GITHUB_OUTPUT
-          elif [[ "$TAG" == *"-beta"* ]]; then
-            echo "environment=stage" >> $GITHUB_OUTPUT
+          case "$TAG" in
+            *-alpha*) ENVIRONMENT=dev;   PRERELEASE=true  ;;
+            *-beta*)  ENVIRONMENT=stage; PRERELEASE=true  ;;
+            *)        ENVIRONMENT=prod;  PRERELEASE=false ;;
+          esac
+          {
+            echo "environment=$ENVIRONMENT"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Tag: $TAG → environment=$ENVIRONMENT prerelease=$PRERELEASE"
+
+  publish:
+    name: Publish release
+    # Pushing a tag publishes. There is deliberately no human approval step:
+    # v1.0.0 and v1.0.1 both sat as drafts while `upload-cdn` had already pushed
+    # them to `downloads/desktop/latest/`, so the Releases page advertised
+    # v0.1.4 as newest while users downloaded 1.0.1. A gate nobody operates is
+    # not a safety measure, it is a source of that mismatch.
+    #
+    # Pre-release review has its own channel that this workflow already models:
+    # tag `-alpha` / `-beta` and `resolve-env` routes it to dev/stage and marks
+    # the GitHub release as a prerelease.
+    needs: [release, resolve-env]
+    if: github.repository == 'to-nexus/ant-desktop'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Flip the staged release to published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          FLAGS=(--draft=false)
+          if [ "${{ needs.resolve-env.outputs.prerelease }}" = "true" ]; then
+            # A prerelease must not take the "Latest" badge from a stable tag.
+            FLAGS+=(--prerelease)
           else
-            echo "environment=prod" >> $GITHUB_OUTPUT
+            FLAGS+=(--prerelease=false --latest)
           fi
-          echo "Tag: $TAG → Environment: $(grep environment $GITHUB_OUTPUT | cut -d= -f2)"
+          gh release edit "$TAG" --repo "${{ github.repository }}" "${FLAGS[@]}"
+          echo "Published $TAG (prerelease=${{ needs.resolve-env.outputs.prerelease }})" >> $GITHUB_STEP_SUMMARY
 
   upload-cdn:
     name: Upload to CDN
