@@ -22,3 +22,7 @@ CLAUDE.md
 .cursorrules
 .claude/
 .cursor/
+
+# Security/audit reports — not for public disclosure until fixes ship,
+# and not useful to keep tracked afterward either.
+docs/tmp/

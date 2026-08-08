@@ -1,5 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 
+/**
+ * A deep-link connect request awaiting the user's approval. Carries no token —
+ * `server` plus `account` is what the user has to judge, and `isAccountSwitch`
+ * is the signal that matters most: an attacker's link can name the real server
+ * while attaching *their* account.
+ */
+export interface PendingConnectView {
+  server: string;
+  account: string | null;
+  currentAccount: string | null;
+  isAccountSwitch: boolean;
+}
+
 export interface AppStateSnapshot {
   connectionStatus: string;
   figmaStatus: string;
@@ -9,6 +22,7 @@ export interface AppStateSnapshot {
   mcpRequestCount: number;
   lastHeartbeatAgoMs: number | null;
   lastMcpRequestAgoMs: number | null;
+  pendingConnect: PendingConnectView | null;
 }
 
 export interface ConnectionInfo {
@@ -16,6 +30,7 @@ export interface ConnectionInfo {
   webUrl: string | null;
   hasJwt: boolean;
   userId: string | null;
+  account: string | null;
 }
 
 export async function getAppState(): Promise<AppStateSnapshot> {
@@ -44,6 +59,16 @@ export async function confirmConnect(): Promise<void> {
 
 export async function cancelConnect(): Promise<void> {
   return invoke("cancel_connect");
+}
+
+/**
+ * Start a pairing and get back the web URL to open. The returned URL carries a
+ * one-shot `desktop_pair` nonce that the web app echoes on the deep link, which
+ * is how the backend recognises a connect the user began here and skips the
+ * approval prompt.
+ */
+export async function beginPairing(webUrl: string): Promise<string> {
+  return invoke<string>("begin_pairing", { webUrl });
 }
 
 export async function setRealtimeBaseUrl(url: string): Promise<void> {

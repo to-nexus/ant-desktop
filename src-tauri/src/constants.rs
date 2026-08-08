@@ -14,5 +14,14 @@ pub const DEFAULT_CLOUD_URL: &str = "https://ant.crosstoken.io";
 pub const DEFAULT_LOCAL_HOST: &str = "http://127.0.0.1";
 pub const DEFAULT_LOCAL_PORT: u16 = 4101;
 
+/// How long a deep-link connect request may sit awaiting the user's approval.
+/// A parked request holds a bearer token, so it expires rather than waiting
+/// forever for a click that may come from a different session entirely.
+pub const DEEPLINK_PENDING_TTL_SECS: u64 = 300;
+
+/// How long a locally-minted pairing nonce stays redeemable. The window only
+/// has to cover "open the browser, sign in, click connect".
+pub const PAIRING_TTL_SECS: u64 = 300;
+
 pub const KEYCHAIN_SERVICE: &str = "ant-desktop";
 pub const KEYCHAIN_JWT_KEY: &str = "jwt";

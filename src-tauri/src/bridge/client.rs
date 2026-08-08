@@ -94,7 +94,7 @@ pub async fn run_loop<R: Runtime>(
                 Ok(s) => (
                     s.server_url.clone(),
                     s.jwt.clone(),
-                    s.user_id.clone(),
+                    s.user_id(),
                     s.machine_id.clone(),
                 ),
                 Err(_) => {

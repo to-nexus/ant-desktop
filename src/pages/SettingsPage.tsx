@@ -160,6 +160,12 @@ function SettingsPage() {
             </span>
           </div>
           <div className="flex justify-between">
+            <span className="text-neutral-500">Account</span>
+            <span className="text-neutral-300 font-mono text-xs">
+              {info?.account ?? "—"}
+            </span>
+          </div>
+          <div className="flex justify-between">
             <span className="text-neutral-500">User ID</span>
             <span className="text-neutral-300 font-mono text-xs">
               {info?.userId ?? "—"}

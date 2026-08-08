@@ -1,14 +1,23 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import StatusPage from "./pages/StatusPage";
 import SettingsPage from "./pages/SettingsPage";
 import LogsPage from "./pages/LogsPage";
+import ConnectConfirmModal from "./components/ConnectConfirmModal";
+import { useAppState } from "./hooks/useAppState";
 import { confirmConnect, cancelConnect } from "./lib/tauri";
 
 type Tab = "status" | "settings" | "logs";
 
+const REJECTED_NOTICE_DURATION_MS = 10_000;
+
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>("status");
+  const { state, error, refresh } = useAppState();
+  const [rejectedNotice, setRejectedNotice] = useState<string | null>(null);
+  const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     const unlisten = listen<string>("navigate-tab", (event) => {
@@ -22,30 +31,43 @@ function App() {
     };
   }, []);
 
-  // Deep-link connect requires explicit user confirmation — a web page can
-  // trigger the `ant-desktop://connect` scheme, so the backend parks the
-  // request and we confirm before switching the app's server/account.
+  // A parked deep-link connect lives in backend state, not in this event — the
+  // event is only a "look now" nudge, so a cold-start deep link that fired
+  // before this webview existed still surfaces on the next poll.
   useEffect(() => {
-    const unlisten = listen<{ server: string }>(
-      "auth-connect-request",
-      async (event) => {
-        const server = event.payload?.server ?? "an unknown server";
-        const approved = window.confirm(
-          `Connect this app to:\n\n${server}\n\n` +
-            "Approve ONLY if you just started this sign-in. Approving switches " +
-            "the app to this server and account.",
-        );
-        try {
-          await (approved ? confirmConnect() : cancelConnect());
-        } catch (e) {
-          console.error("deep-link connect confirmation failed", e);
-        }
-      },
-    );
+    const unlisteners = [
+      listen("auth-connect-request", () => refresh()),
+      listen("auth-received", () => refresh()),
+      listen<{ server?: string; reason?: string }>(
+        "auth-connect-rejected",
+        (event) => {
+          const server = event.payload?.server ?? "an unknown server";
+          setRejectedNotice(
+            `Refused a connection request for ${server}. If this is your own server, add it in Settings first.`,
+          );
+          clearTimeout(noticeTimeoutRef.current);
+          noticeTimeoutRef.current = setTimeout(
+            () => setRejectedNotice(null),
+            REJECTED_NOTICE_DURATION_MS,
+          );
+        },
+      ),
+    ];
     return () => {
-      unlisten.then((fn) => fn());
+      clearTimeout(noticeTimeoutRef.current);
+      unlisteners.forEach((p) => p.then((fn) => fn()).catch(() => {}));
     };
-  }, []);
+  }, [refresh]);
+
+  const approveConnect = useCallback(async () => {
+    await confirmConnect();
+    await refresh();
+  }, [refresh]);
+
+  const rejectConnect = useCallback(async () => {
+    await cancelConnect();
+    await refresh();
+  }, [refresh]);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "status", label: "Status" },
@@ -72,10 +94,23 @@ function App() {
       </nav>
 
       <main className="flex-1 overflow-y-auto p-4">
-        {activeTab === "status" && <StatusPage />}
+        {rejectedNotice && (
+          <p className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-400">
+            {rejectedNotice}
+          </p>
+        )}
+        {activeTab === "status" && <StatusPage state={state} error={error} />}
         {activeTab === "settings" && <SettingsPage />}
         {activeTab === "logs" && <LogsPage />}
       </main>
+
+      {state?.pendingConnect && (
+        <ConnectConfirmModal
+          pending={state.pendingConnect}
+          onApprove={approveConnect}
+          onReject={rejectConnect}
+        />
+      )}
     </div>
   );
 }

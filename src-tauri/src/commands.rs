@@ -2,10 +2,11 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::error::AppError;
-use crate::state::{AppStateSnapshot, ConnectionStatus, SharedAppState};
+use crate::state::{AppStateSnapshot, ConnectionStatus, PendingPairing, SharedAppState};
 use crate::validation;
 use crate::{
-    auth, replace_token, save_server_url, save_web_url, spawn_bridge_task, SharedCancellationToken,
+    apply_pending_connect, auth, replace_token, save_server_url, save_web_url,
+    spawn_baseline_connection, spawn_bridge_task, SharedCancellationToken,
 };
 
 #[tauri::command]
@@ -25,6 +26,8 @@ pub struct ConnectionInfo {
     pub web_url: Option<String>,
     pub has_jwt: bool,
     pub user_id: Option<String>,
+    /// Display label for the connected account (address when the token has one).
+    pub account: Option<String>,
 }
 
 #[tauri::command]
@@ -38,7 +41,8 @@ pub async fn get_connection_info(
         server_url: guard.server_url.clone(),
         web_url: guard.web_url.clone(),
         has_jwt: guard.jwt.is_some(),
-        user_id: guard.user_id.clone(),
+        user_id: guard.user_id(),
+        account: guard.account_label(),
     })
 }
 
@@ -60,7 +64,7 @@ pub async fn disconnect<R: Runtime>(
             .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
         s.connection_status = ConnectionStatus::AuthRequired;
         s.jwt = None;
-        s.user_id = None;
+        s.account = None;
     }
 
     let _ = app.emit("connection-status-changed", ConnectionStatus::AuthRequired);
@@ -99,7 +103,10 @@ pub async fn connect<R: Runtime>(
             .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
         s.server_url = Some(server_url);
         s.jwt = Some(jwt);
-        s.user_id = Some(user_id);
+        s.account = Some(auth::jwt::DesktopClaims {
+            sub: user_id,
+            email: None,
+        });
         s.connection_status = ConnectionStatus::Initial;
     }
 
@@ -108,9 +115,10 @@ pub async fn connect<R: Runtime>(
     Ok(())
 }
 
-/// Apply a deep-link connect that the user explicitly confirmed. Consumes the
-/// parked `pending_connect` and performs the same work as `connect` (save JWT,
-/// persist server, spawn bridge). No-op error if nothing is pending.
+/// Apply a deep-link connect that the user explicitly approved. Consumes the
+/// parked `pending_connect` and hands it to `apply_pending_connect` — the same
+/// path the pairing-matched deep link takes. Errors if nothing is pending or
+/// the request sat unanswered past its TTL.
 #[tauri::command]
 pub async fn confirm_connect<R: Runtime>(
     app: AppHandle<R>,
@@ -126,41 +134,76 @@ pub async fn confirm_connect<R: Runtime>(
     let pending =
         pending.ok_or_else(|| AppError::Internal("no pending connection to confirm".into()))?;
 
-    let new_token = replace_token(shared_token.inner());
-
-    if let Err(e) = auth::keychain::save_jwt(&pending.token) {
-        tracing::warn!("JWT keychain save failed (proceeding in-memory): {e}");
-    }
-    save_server_url(&app, &pending.server);
-
-    {
-        let mut s = state
-            .lock()
-            .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
-        s.server_url = Some(pending.server.clone());
-        s.jwt = Some(pending.token);
-        s.user_id = pending.user_id;
-        s.connection_status = ConnectionStatus::Initial;
+    if pending.is_expired() {
+        return Err(AppError::Internal(
+            "connect request expired — start the connection again".into(),
+        ));
     }
 
-    spawn_bridge_task(new_token, state.inner().clone(), app.clone());
-
-    let _ = app.emit(
-        "auth-received",
-        serde_json::json!({ "server": pending.server }),
-    );
+    apply_pending_connect(&app, state.inner(), shared_token.inner(), pending);
 
     Ok(())
 }
 
 /// Discard a parked deep-link connect request the user declined.
+///
+/// A cold-start deep link is handled *instead of* session restore, so declining
+/// one would otherwise leave the app with no bridge at all. Fall back to the
+/// baseline connection when nothing is connected.
 #[tauri::command]
-pub async fn cancel_connect(state: tauri::State<'_, SharedAppState>) -> Result<(), AppError> {
-    let mut s = state
-        .lock()
-        .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
-    s.pending_connect = None;
+pub async fn cancel_connect<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, SharedAppState>,
+) -> Result<(), AppError> {
+    let needs_baseline = {
+        let mut s = state
+            .lock()
+            .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
+        s.pending_connect = None;
+        s.jwt.is_none()
+    };
+
+    if needs_baseline {
+        spawn_baseline_connection(&app);
+    }
+
     Ok(())
+}
+
+/// Start a pairing: mint a one-shot nonce, remember it alongside the web host
+/// we are about to open, and return the URL to open.
+///
+/// This is what turns a deep link from "some page asked us to connect" into
+/// "the user started this here". The returned URL carries `desktop_pair`; the
+/// web app echoes it back as `state` on the deep link, and
+/// `process_deep_link_url` redeems it. URL composition lives here so the nonce
+/// and the recorded host can never disagree.
+#[tauri::command]
+pub async fn begin_pairing(
+    state: tauri::State<'_, SharedAppState>,
+    web_url: String,
+) -> Result<String, AppError> {
+    let web_url = validation::validate_web_url(&web_url)
+        .map_err(|e| AppError::Internal(format!("invalid web URL: {e}")))?;
+    if web_url.is_empty() {
+        return Err(AppError::Internal("web URL is not configured".into()));
+    }
+
+    let mut parsed = url::Url::parse(&web_url)
+        .map_err(|e| AppError::Internal(format!("invalid web URL: {e}")))?;
+    let web_host = parsed.host_str().map(|h| h.to_ascii_lowercase());
+
+    let nonce = uuid::Uuid::new_v4().to_string();
+    parsed.query_pairs_mut().append_pair("desktop_pair", &nonce);
+
+    {
+        let mut s = state
+            .lock()
+            .map_err(|e| AppError::Internal(format!("state lock poisoned: {e}")))?;
+        s.pending_pairing = Some(PendingPairing::new(nonce, web_host));
+    }
+
+    Ok(parsed.to_string())
 }
 
 #[tauri::command]

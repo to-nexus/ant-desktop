@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
-import { useAppState } from "../hooks/useAppState";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { setWebUrl } from "../lib/tauri";
+import { beginPairing, setWebUrl, type AppStateSnapshot } from "../lib/tauri";
 import StatusIndicator from "../components/StatusIndicator";
 import ConnectionCard from "../components/ConnectionCard";
 import AntIcon from "../components/icons/AntIcon";
@@ -306,8 +305,12 @@ function WebUrlSettings({
   );
 }
 
-function StatusPage() {
-  const { state, error } = useAppState();
+interface StatusPageProps {
+  state: AppStateSnapshot | null;
+  error: string | null;
+}
+
+function StatusPage({ state, error }: StatusPageProps) {
   const [showWebUrlSettings, setShowWebUrlSettings] = useState(false);
   const [figmaOpening, setFigmaOpening] = useState(false);
   const [figmaNotice, setFigmaNotice] = useState<string | null>(null);
@@ -318,6 +321,20 @@ function StatusPage() {
     setFigmaNotice(msg);
     clearTimeout(noticeTimeoutRef.current);
     noticeTimeoutRef.current = setTimeout(() => setFigmaNotice(null), FIGMA_NOTICE_DURATION_MS);
+  }, []);
+
+  // Opening the web app is also how a connection starts, so mint a one-shot
+  // pairing nonce first. A deep link that echoes it back is provably one the
+  // user began here and applies without an approval prompt; a link that does
+  // not has to be approved. Failing to pair is not fatal — worst case the user
+  // sees the prompt.
+  const handleWebOpen = useCallback(async (url: string) => {
+    try {
+      await safeOpenUrl(await beginPairing(url));
+    } catch (e) {
+      console.error("pairing failed, opening unpaired", e);
+      await safeOpenUrl(url);
+    }
   }, []);
 
   const handleFigmaOpen = useCallback(async () => {
@@ -383,9 +400,13 @@ function StatusPage() {
               {webUrl && (
                 <ActionBadge
                   icon={<ExternalLinkIcon />}
-                  label="Open"
+                  label={
+                    state.connectionStatus === "authRequired"
+                      ? "Connect"
+                      : "Open"
+                  }
                   title={webUrl}
-                  onClick={() => safeOpenUrl(webUrl)}
+                  onClick={() => handleWebOpen(webUrl)}
                 />
               )}
               <ActionBadge

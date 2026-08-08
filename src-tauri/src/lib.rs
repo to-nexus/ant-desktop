@@ -9,13 +9,14 @@ pub mod state;
 pub mod tray;
 pub mod validation;
 
-use state::{AppState, PendingConnect, SharedAppState};
+use state::{AppState, ConnectionStatus, PendingConnect, SharedAppState};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Listener, Manager, Runtime};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_store::StoreExt;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
+use validation::DeepLinkServerPolicy;
 
 pub type SharedCancellationToken = Arc<Mutex<CancellationToken>>;
 
@@ -70,6 +71,7 @@ pub fn run() {
             commands::connect,
             commands::confirm_connect,
             commands::cancel_connect,
+            commands::begin_pairing,
             commands::set_realtime_base_url,
             commands::set_web_url,
             commands::get_connection_info,
@@ -124,19 +126,10 @@ pub fn run() {
                 }
             }
 
-            // Keychain + bridge init run off the main thread to avoid
-            // blocking the macOS event loop (keychain access can stall).
-            // Skip if a deep link was already processed (avoids race condition
-            // where session restore cancels or duplicates the deep-link bridge).
+            // Skip if a deep link was already processed (avoids a race where
+            // session restore cancels or duplicates the deep-link bridge).
             if !deep_link_handled {
-                let app_handle = app.handle().clone();
-                let state = app.state::<SharedAppState>().inner().clone();
-                let shared_token = app.state::<SharedCancellationToken>().inner().clone();
-                tauri::async_runtime::spawn(async move {
-                    if !try_restore_session_async(&app_handle, &state, &shared_token) {
-                        try_probe_connection_async(&app_handle, &state, &shared_token);
-                    }
-                });
+                spawn_baseline_connection(app.handle());
             }
 
             Ok(())
@@ -197,6 +190,75 @@ fn setup_deep_link(app: &tauri::App) -> bool {
     false
 }
 
+/// Apply a connect the user authorized: persist the token + server and restart
+/// the bridge against them.
+///
+/// Single owner for that state transition — `confirm_connect` (explicit
+/// approval) and the pairing-matched deep-link path both go through here, so
+/// the two can never drift on what "connected" means.
+pub fn apply_pending_connect<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    state: &SharedAppState,
+    shared_token: &SharedCancellationToken,
+    pending: PendingConnect,
+) {
+    let new_token = replace_token(shared_token);
+
+    if let Err(e) = auth::keychain::save_jwt(&pending.token) {
+        tracing::warn!("JWT keychain save failed (proceeding in-memory): {e}");
+    }
+    save_server_url(app, &pending.server);
+
+    if let Ok(mut s) = state.lock() {
+        s.server_url = Some(pending.server.clone());
+        s.jwt = Some(pending.token);
+        s.account = pending.claims;
+        s.connection_status = ConnectionStatus::Initial;
+        // Any other parked request is moot now — leaving it would pop an
+        // approval prompt for a connection that has already been superseded.
+        s.pending_connect = None;
+    }
+
+    spawn_bridge_task(new_token, state.clone(), app.clone());
+
+    let _ = app.emit(
+        "auth-received",
+        serde_json::json!({ "server": pending.server }),
+    );
+}
+
+/// Build the deep-link server allowlist from what the user has actually done:
+/// the server they configured, and the web host of a pairing in flight.
+fn deeplink_server_policy<R: Runtime>(
+    handle: &tauri::AppHandle<R>,
+    state: &SharedAppState,
+) -> DeepLinkServerPolicy {
+    let configured_origin = load_server_url(handle)
+        .and_then(|url| url::Url::parse(&url).ok())
+        .map(|u| u.origin().ascii_serialization());
+
+    let paired_web_host = state
+        .lock()
+        .ok()
+        .and_then(|s| s.pending_pairing.as_ref().and_then(|p| p.web_host.clone()));
+
+    DeepLinkServerPolicy {
+        configured_origin,
+        paired_web_host,
+    }
+}
+
+/// The single trust decision for an inbound `ant-desktop://connect` URI.
+///
+/// Three outcomes, in order:
+///   1. Server origin not allowlisted → refuse, and say so. A silent no-op here
+///      would hide both the misconfiguration and the attack.
+///   2. `state` matches a live pairing this Desktop started → the user began
+///      this flow here, so apply it (consuming the nonce) without a prompt.
+///   3. Otherwise → park it and let the UI ask, naming the server *and the
+///      account*. The account is the part that matters: an attacker's link can
+///      legitimately name the canonical server, so "which server" alone is not
+///      a question the user can answer correctly.
 fn process_deep_link_url<R: Runtime>(handle: &tauri::AppHandle<R>, url_str: &str) {
     info!(url = %url_str, "deep link received");
 
@@ -208,30 +270,95 @@ fn process_deep_link_url<R: Runtime>(handle: &tauri::AppHandle<R>, url_str: &str
         }
     };
 
-    let user_id = auth::jwt::decode_user_id(&params.token).ok();
+    let state = handle.state::<SharedAppState>().inner().clone();
+    let policy = deeplink_server_policy(handle, &state);
 
-    // Do NOT auto-apply. The custom scheme can be triggered by any web page,
-    // so silently saving the token + switching servers would be a drive-by
-    // account/server swap. Park the request and ask the UI to confirm; the
-    // token is saved and the bridge is spawned only in `confirm_connect`.
-    let state = handle.state::<SharedAppState>();
-    if let Ok(mut s) = state.lock() {
-        s.pending_connect = Some(PendingConnect {
-            token: params.token.clone(),
-            server: params.server.clone(),
-            user_id,
-        });
+    let server = match validation::validate_deeplink_server_url(&params.server_raw, &policy) {
+        Ok(s) => s,
+        Err(reason) => {
+            tracing::error!(server = %params.server_raw, %reason, "rejected deep-link server");
+            show_main_window(handle);
+            // The rejected string never passed validation, so bound it before it
+            // reaches a user-facing notice.
+            let _ = handle.emit(
+                "auth-connect-rejected",
+                serde_json::json!({
+                    "server": state::sanitize_display(&params.server_raw),
+                    "reason": reason,
+                }),
+            );
+            return;
+        }
+    };
+
+    let claims = auth::jwt::decode_claims(&params.token).ok();
+    let pending = PendingConnect::new(params.token, server.clone(), claims);
+
+    let paired = params
+        .state
+        .as_deref()
+        .is_some_and(|nonce| consume_pairing(&state, nonce));
+
+    if paired {
+        info!(server = %server, "deep link matched a local pairing, applying");
+        let shared_token = handle.state::<SharedCancellationToken>().inner().clone();
+        apply_pending_connect(handle, &state, &shared_token, pending);
+        show_main_window(handle);
+        return;
     }
 
+    if let Ok(mut s) = state.lock() {
+        s.pending_connect = Some(pending);
+    }
+
+    show_main_window(handle);
+
+    // The UI reads the parked request out of the state snapshot, so a cold-start
+    // deep link survives a webview that was not listening yet. This event is
+    // only a "refresh now" nudge.
+    let _ = handle.emit(
+        "auth-connect-request",
+        serde_json::json!({ "server": server }),
+    );
+}
+
+/// Redeem a pairing nonce. One shot: a match clears the pairing so a replay of
+/// the same link lands on the confirmation prompt instead.
+fn consume_pairing(state: &SharedAppState, nonce: &str) -> bool {
+    let Ok(mut s) = state.lock() else {
+        return false;
+    };
+    match s.pending_pairing.as_ref() {
+        Some(p) if p.matches(nonce) => {
+            s.pending_pairing = None;
+            true
+        }
+        _ => false,
+    }
+}
+
+fn show_main_window<R: Runtime>(handle: &tauri::AppHandle<R>) {
     if let Some(window) = handle.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
 
-    let _ = handle.emit(
-        "auth-connect-request",
-        serde_json::json!({ "server": params.server }),
-    );
+/// Bring the app to its baseline connection state: restore the stored session,
+/// or fall back to an unauthenticated probe.
+///
+/// Runs off the main thread — keychain access can stall the macOS event loop.
+/// Called at startup, and again when the user declines a connect request, so
+/// declining returns the app to normal instead of leaving it with no bridge.
+pub fn spawn_baseline_connection<R: Runtime>(app: &tauri::AppHandle<R>) {
+    let app_handle = app.clone();
+    let state = app.state::<SharedAppState>().inner().clone();
+    let shared_token = app.state::<SharedCancellationToken>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        if !try_restore_session_async(&app_handle, &state, &shared_token) {
+            try_probe_connection_async(&app_handle, &state, &shared_token);
+        }
+    });
 }
 
 /// Try to restore a previous session from keychain. Returns true if restored.
@@ -246,8 +373,8 @@ fn try_restore_session_async<R: Runtime>(
         _ => return false,
     };
 
-    let user_id = match auth::jwt::decode_user_id(&jwt) {
-        Ok(uid) => uid,
+    let claims = match auth::jwt::decode_claims(&jwt) {
+        Ok(c) => c,
         Err(_) => return false,
     };
 
@@ -262,7 +389,7 @@ fn try_restore_session_async<R: Runtime>(
     if let Ok(mut s) = state.lock() {
         s.server_url = Some(server_url);
         s.jwt = Some(jwt);
-        s.user_id = Some(user_id);
+        s.account = Some(claims);
     }
 
     let token = match shared_token.lock() {
